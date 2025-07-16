@@ -81,10 +81,10 @@ install_dependencies() {
         apt-get update
         apt-get install -y curl || { colorize red "Failed to install curl"; press_key; exit 1; }
     fi
-    if ! command -v vnstat &> /dev/null; then
-        colorize yellow "Installing vnstat..."
+    if ! command -v iptables &> /dev/null; then
+        colorize yellow "Installing iptables..."
         apt-get update
-        apt-get install -y vnstat || { colorize red "Failed to install vnstat"; press_key; exit 1; }
+        apt-get install -y iptables || { colorize red "Failed to install iptables"; press_key; exit 1; }
     fi
 }
 
@@ -95,16 +95,16 @@ manual_download_instructions() {
     colorize yellow "Please follow these steps to manually download and install the RGT core:"
     echo	
     echo "1. Download the file 'RGT-x86-64-linux.zip' from:"
-	echo
+    echo
     colorize yellow "   https://github.com/black-sec/RGT/raw/main/core/RGT-x86-64-linux.zip"
-	echo
+    echo
     echo "   You can use a browser or a tool like 'wget' on a system with access:"
     echo "   wget https://github.com/black-sec/RGT/raw/main/core/RGT-x86-64-linux.zip"
     echo
     echo "2. Upload the downloaded file to the server /root/ using SFTP:"
-	echo
+    echo
     echo "3. Log in to the server via SSH and extract the file:"
-	echo
+    echo
     echo "   mkdir -p /root/rgt-core"
     echo "   unzip /root/RGT-x86-64-linux.zip -d /root/rgt-core"
     echo "   mv /root/rgt-core/rgt /root/rgt-core/rgt"
@@ -554,7 +554,8 @@ view_bandwidth_usage() {
     clear
     colorize cyan "Bandwidth Usage for Tunnel $tunnel_name" bold
     echo
-    # Initialize vnstat for the tunnel port
+
+    # Get tunnel port and config ports
     local tunnel_port=$(grep "bind_addr" "$CONFIG_DIR/iran-${tunnel_name}.toml" 2>/dev/null | grep -oP ':(\d+)' | cut -d':' -f2)
     if [[ -z "$tunnel_port" ]]; then
         tunnel_port=$(grep "remote_addr" "$CONFIG_DIR/kharej-${tunnel_name}.toml" 2>/dev/null | grep -oP ':(\d+)' | cut -d':' -f2)
@@ -564,12 +565,55 @@ view_bandwidth_usage() {
         press_key
         return 1
     fi
-    # Use vnstat to display bandwidth usage
-    vnstat -i lo --query --port "$tunnel_port" 2>/dev/null || {
-        colorize yellow "No bandwidth data available for port $tunnel_port. Ensure vnstat is configured."
+
+    # Get config ports
+    local config_ports=$(grep -oP 'service[0-9]+' "$CONFIG_DIR/iran-${tunnel_name}.toml" 2>/dev/null | sed 's/service//g' | sort -n | tr '\n' ',' | sed 's/,$//')
+    if [[ -z "$config_ports" ]]; then
+        config_ports=$(grep -oP 'service[0-9]+' "$CONFIG_DIR/kharej-${tunnel_name}.toml" 2>/dev/null | sed 's/service//g' | sort -n | tr '\n' ',' | sed 's/,$//')
+    fi
+    if [[ -z "$config_ports" ]]; then
+        colorize red "Could not determine config ports."
         press_key
         return 1
-    }
+    fi
+
+    # Get transport type from config
+    local transport=$(grep "type = " "$CONFIG_DIR/iran-${tunnel_name}.toml" 2>/dev/null | grep -oP 'type = "\K[^"]+' | head -1)
+    if [[ -z "$transport" ]]; then
+        transport=$(grep "type = " "$CONFIG_DIR/kharej-${tunnel_name}.toml" 2>/dev/null | grep -oP 'type = "\K[^"]+' | head -1)
+    fi
+    [[ -z "$transport" ]] && transport="tcp"
+
+    # Setup iptables rules for each config port
+    IFS=',' read -r -a ports <<< "$config_ports"
+    for port in "${ports[@]}"; do
+        # Clear existing rules for this port to avoid duplication
+        iptables -D INPUT -p "$transport" --dport "$port" -j ACCEPT 2>/dev/null
+        iptables -D OUTPUT -p "$transport" --sport "$port" -j ACCEPT 2>/dev/null
+        # Add new rules
+        iptables -A INPUT -p "$transport" --dport "$port" -j ACCEPT
+        iptables -A OUTPUT -p "$transport" --sport "$port" -j ACCEPT
+    done
+
+    # Display bandwidth for each config port
+    colorize yellow "Bandwidth usage for config ports ($config_ports):"
+    echo
+    for port in "${ports[@]}"; do
+        colorize cyan "Port $port ($transport):"
+        local in_bytes=$(iptables -L INPUT -v -n --line-numbers | grep "dpt:$port" | grep "$transport" | awk '{print $2}' | head -1)
+        local out_bytes=$(iptables -L OUTPUT -v -n --line-numbers | grep "spt:$port" | grep "$transport" | awk '{print $2}' | head -1)
+        local in_mb=$(echo "scale=2; $in_bytes / 1024 / 1024" | bc 2>/dev/null)
+        local out_mb=$(echo "scale=2; $out_bytes / 1024 / 1024" | bc 2>/dev/null)
+        [[ -z "$in_mb" ]] && in_mb="0.00"
+        [[ -z "$out_mb" ]] && out_mb="0.00"
+        echo "  Input: $in_mb MB"
+        echo "  Output: $out_mb MB"
+    done
+
+    # Note about iptables
+    colorize yellow "Note: Bandwidth is tracked using iptables for specific ports."
+    colorize yellow "To reset counters, run: iptables -Z"
+    colorize yellow "For advanced monitoring, consider tools like 'iftop -f \"port $config_ports\"'."
     press_key
 }
 
@@ -807,8 +851,17 @@ manage_tunnel() {
     for config_path in "$CONFIG_DIR"/iran-*.toml; do
         if [[ -f "$config_path" ]]; then
             tunnel_name=$(basename "$config_path" .toml | sed 's/iran-//')
-            tunnel_port=$(grep "bind_addr" "$config_path" | grep -oP ':(\d+)' | cut -d':' -f2)
-            config_ports=$(grep -oP 'service[0-9]+' "$config_path" | sed 's/service//g' | sort -n | tr '\n' ',' | sed 's/,$//')
+            # Try to get tunnel port and config ports from kharej config if available
+            kharej_config="$CONFIG_DIR/kharej-${tunnel_name}.toml"
+            if [[ -f "$kharej_config" ]]; then
+                tunnel_port=$(grep "remote_addr" "$kharej_config" 2>/dev/null | grep -oP ':(\d+)' | cut -d':' -f2)
+                config_ports=$(grep -oP 'service[0-9]+' "$kharej_config" 2>/dev/null | sed 's/service//g' | sort -n | tr '\n' ',' | sed 's/,$//')
+            else
+                tunnel_port=$(grep "bind_addr" "$config_path" 2>/dev/null | grep -oP ':(\d+)' | cut -d':' -f2)
+                config_ports=$(grep -oP 'service[0-9]+' "$config_path" 2>/dev/null | sed 's/service//g' | sort -n | tr '\n' ',' | sed 's/,$//')
+            fi
+            [[ -z "$tunnel_port" ]] && tunnel_port="Unknown"
+            [[ -z "$config_ports" ]] && config_ports="Unknown"
             configs+=("$config_path")
             config_types+=("iran")
             echo -e "${MAGENTA}${index}${NC}) ${GREEN}Iran Tunnel ${tunnel_name}${NC} (Tunnel Port = ${YELLOW}${tunnel_port}${NC}) (Config Ports: ${YELLOW}${config_ports}${NC})"
@@ -818,8 +871,10 @@ manage_tunnel() {
     for config_path in "$CONFIG_DIR"/kharej-*.toml; do
         if [[ -f "$config_path" ]]; then
             tunnel_name=$(basename "$config_path" .toml | sed 's/kharej-//')
-            tunnel_port=$(grep "remote_addr" "$config_path" | grep -oP ':(\d+)' | cut -d':' -f2)
-            config_ports=$(grep -oP 'service[0-9]+' "$config_path" | sed 's/service//g' | sort -n | tr '\n' ',' | sed 's/,$//')
+            tunnel_port=$(grep "remote_addr" "$config_path" 2>/dev/null | grep -oP ':(\d+)' | cut -d':' -f2)
+            config_ports=$(grep -oP 'service[0-9]+' "$config_path" 2>/dev/null | sed 's/service//g' | sort -n | tr '\n' ',' | sed 's/,$//')
+            [[ -z "$tunnel_port" ]] && tunnel_port="Unknown"
+            [[ -z "$config_ports" ]] && config_ports="Unknown"
             configs+=("$config_path")
             config_types+=("kharej")
             echo -e "${MAGENTA}${index}${NC}) ${GREEN}Kharej Tunnel ${tunnel_name}${NC} (Tunnel Port = ${YELLOW}${tunnel_port}${NC}) (Config Ports: ${YELLOW}${config_ports}${NC})"
