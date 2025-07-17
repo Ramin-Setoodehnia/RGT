@@ -1,12 +1,10 @@
 #!/bin/bash
-
 # Check if the script is run as root
 if [[ $EUID -ne 0 ]]; then
     echo "This script must be run as root"
     sleep 1
     exit 1
 fi
-
 # Define colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -25,7 +23,6 @@ SCRIPT_PATH="/usr/local/bin/RGT"
 press_key() {
     read -p "Press any key to continue..."
 }
-
 # Function to colorize text
 colorize() {
     local color="$1"
@@ -63,7 +60,6 @@ colorize() {
     esac
     echo -e "${style_code}${color_code}${text}${reset}"
 }
-
 # Function to install dependencies
 install_dependencies() {
     if ! command -v unzip &> /dev/null; then
@@ -82,7 +78,6 @@ install_dependencies() {
         apt-get install -y curl || { colorize red "Failed to install curl"; press_key; exit 1; }
     fi
 }
-
 # Function to display manual download instructions
 manual_download_instructions() {
     colorize red "Failed to download RGT core from GitHub due to possible network restrictions."
@@ -110,7 +105,6 @@ manual_download_instructions() {
     press_key
     exit 1
 }
-
 # Function to validate downloaded zip file
 validate_zip_file() {
     local zip_file="$1"
@@ -128,7 +122,6 @@ validate_zip_file() {
     fi
     return 0
 }
-
 # Function to download and install rgt
 download_and_extract_rgt() {
     if [[ -f "${RGT_BIN}" ]] && [[ -x "${RGT_BIN}" ]]; then
@@ -173,7 +166,6 @@ download_and_extract_rgt() {
     chmod +x "${SCRIPT_PATH}"
     colorize green "Script is now executable as 'RGT' command." bold
 }
-
 # Function to update script
 update_script() {
     clear
@@ -200,7 +192,6 @@ update_script() {
     press_key
     exit 0
 }
-
 # Function to check if a port is in use
 check_port() {
     local port=$1
@@ -213,7 +204,6 @@ check_port() {
         return 1
     fi
 }
-
 # Function to validate IPv6 address
 check_ipv6() {
     local ip=$1
@@ -222,7 +212,6 @@ check_ipv6() {
     ipv6_pattern="^([0-9a-fA-F]{1,4}:){7}([0-9a-fA-F]{1,4}|:)$|^(([0-9a-fA-F]{1,4}:){1,7}|:):((:[0-9a-fA-F]{1,4}){1,7}|:)$"
     [[ $ip =~ $ipv6_pattern ]] && return 0 || return 1
 }
-
 # Function to check for consecutive errors and restart
 check_consecutive_errors() {
     local service_name="$1"
@@ -239,7 +228,6 @@ check_consecutive_errors() {
         fi
     fi
 }
-
 # Function to configure Iran server
 iran_server_configuration() {
     clear
@@ -384,7 +372,6 @@ EOF
     systemctl enable --now "RGT-iran-${tunnel_name}.service" || { colorize red "Failed to enable service"; return 1; }
     colorize green "Iran server configuration completed for tunnel '$tunnel_name'."
 }
-
 # Function to configure Kharej server
 kharej_server_configuration() {
     clear
