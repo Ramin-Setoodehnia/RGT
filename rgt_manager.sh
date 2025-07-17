@@ -1,10 +1,15 @@
 #!/bin/bash
 
+# Remove Windows-style line endings if present
+if [[ $(file "$0" | grep -c "CRLF") -gt 0 ]]; then
+    sed -i 's/\r$//' "$0"
+fi
+
 # Check if the script is run as root
 if [[ $EUID -ne 0 ]]; then
-   echo "This script must be run as root"
-   sleep 1
-   exit 1
+    echo "This script must be run as root"
+    sleep 1
+    exit 1
 fi
 
 # Define colors
@@ -20,6 +25,7 @@ CONFIG_DIR="/root/rgt-core"
 SERVICE_DIR="/etc/systemd/system"
 RGT_BIN="${CONFIG_DIR}/rgt"
 SCRIPT_PATH="/usr/local/bin/RGT"
+BANDWIDTH_DIR="${CONFIG_DIR}/bandwidth"
 
 # Function to press key to continue
 press_key() {
@@ -86,6 +92,11 @@ install_dependencies() {
         apt-get update
         apt-get install -y iptables || { colorize red "Failed to install iptables"; press_key; exit 1; }
     fi
+    if ! dpkg -l | grep -q iptables-persistent; then
+        colorize yellow "Installing iptables-persistent..."
+        apt-get update
+        apt-get install -y iptables-persistent || { colorize red "Failed to install iptables-persistent"; press_key; exit 1; }
+    fi
 }
 
 # Function to display manual download instructions
@@ -93,7 +104,7 @@ manual_download_instructions() {
     colorize red "Failed to download RGT core from GitHub due to possible network restrictions."
     echo
     colorize yellow "Please follow these steps to manually download and install the RGT core:"
-    echo	
+    echo
     echo "1. Download the file 'RGT-x86-64-linux.zip' from:"
     echo
     colorize yellow "   https://github.com/black-sec/RGT/raw/main/core/RGT-x86-64-linux.zip"
@@ -192,6 +203,8 @@ update_script() {
         press_key
         return 1
     fi
+    # Remove Windows-style line endings from downloaded script
+    sed -i 's/\r$//' "$TEMP_SCRIPT"
     if ! grep -q "RGT Tunnel" "$TEMP_SCRIPT"; then
         colorize red "Downloaded file does not appear to be a valid RGT script."
         rm -f "$TEMP_SCRIPT"
@@ -242,6 +255,164 @@ check_consecutive_errors() {
         else
             colorize red "Failed to restart tunnel $tunnel_name."
         fi
+    fi
+}
+
+# Function to save bandwidth data
+save_bandwidth_data() {
+    local service_name="$1"
+    local tunnel_name=$(echo "$service_name" | sed 's/RGT-iran-//;s/RGT-kharej-//;s/.service//')
+    local bandwidth_file="${BANDWIDTH_DIR}/${tunnel_name}.json"
+
+    # Log start of function
+    echo "$(date): Starting save_bandwidth_data for $service_name" >> /root/rgt-core/bandwidth_debug.log
+
+    # Get tunnel port and config ports
+    local tunnel_port=$(grep "bind_addr" "$CONFIG_DIR/iran-${tunnel_name}.toml" 2>/dev/null | grep -oP ':(\d+)' | cut -d':' -f2)
+    if [[ -z "$tunnel_port" ]]; then
+        tunnel_port=$(grep "remote_addr" "$CONFIG_DIR/kharej-${tunnel_name}.toml" 2>/dev/null | grep -oP ':(\d+)' | cut -d':' -f2)
+    fi
+    if [[ -z "$tunnel_port" ]]; then
+        echo "$(date): Failed to determine tunnel port for $tunnel_name" >> /root/rgt-core/bandwidth_debug.log
+        return 1
+    fi
+
+    # Get config ports
+    local config_ports=$(grep -oP 'service[0-9]+' "$CONFIG_DIR/iran-${tunnel_name}.toml" 2>/dev/null | sed 's/service//g' | sort -n | tr '\n' ',' | sed 's/,$//')
+    if [[ -z "$config_ports" ]]; then
+        config_ports=$(grep -oP 'service[0-9]+' "$CONFIG_DIR/kharej-${tunnel_name}.toml" 2>/dev/null | sed 's/service//g' | sort -n | tr '\n' ',' | sed 's/,$//')
+    fi
+    if [[ -z "$config_ports" ]]; then
+        echo "$(date): Failed to determine config ports for $tunnel_name" >> /root/rgt-core/bandwidth_debug.log
+        return 1
+    fi
+
+    # Get transport type from config
+    local transport=$(grep "type = " "$CONFIG_DIR/iran-${tunnel_name}.toml" 2>/dev/null | grep -oP 'type = "\K[^"]+' | head -1)
+    if [[ -z "$transport" ]]; then
+        transport=$(grep "type = " "$CONFIG_DIR/kharej-${tunnel_name}.toml" 2>/dev/null | grep -oP 'type = "\K[^"]+' | head -1)
+    fi
+    [[ -z "$transport" ]] && transport="tcp"
+
+    # Setup iptables rules for each config port
+    IFS=',' read -r -a ports <<< "$config_ports"
+    for port in "${ports[@]}"; do
+        iptables -D INPUT -p "$transport" --dport "$port" -j ACCEPT 2>/dev/null
+        iptables -D OUTPUT -p "$transport" --sport "$port" -j ACCEPT 2>/dev/null
+        iptables -A INPUT -p "$transport" --dport "$port" -j ACCEPT
+        iptables -A OUTPUT -p "$transport" --sport "$port" -j ACCEPT
+    done
+    iptables-save > /etc/iptables/rules.v4
+
+    # Initialize bandwidth file if it doesn't exist
+    if [[ ! -f "$bandwidth_file" ]]; then
+        echo '{"ports": {}}' > "$bandwidth_file"
+        chmod 644 "$bandwidth_file"
+    fi
+
+    # Read current bandwidth data
+    local bandwidth_data=$(cat "$bandwidth_file")
+    for port in "${ports[@]}"; do
+        # Get bytes, ensuring we match the exact protocol and port
+        local in_bytes=$(iptables -L INPUT -v -n --line-numbers | grep "dpt:$port" | grep -w "$transport" | awk '{print $2}' | head -1)
+        local out_bytes=$(iptables -L OUTPUT -v -n --line-numbers | grep "spt:$port" | grep -w "$transport" | awk '{print $2}' | head -1)
+        [[ -z "$in_bytes" || "$in_bytes" == "0" ]] && in_bytes=0
+        [[ -z "$out_bytes" || "$out_bytes" == "0" ]] && out_bytes=0
+
+        # Log for debugging
+        echo "$(date): Tunnel $tunnel_name, port $port, transport $transport, in_bytes=$in_bytes, out_bytes=$out_bytes" >> /root/rgt-core/bandwidth_debug.log
+
+        # Update bandwidth data
+        local current_time=$(date +%s)
+        bandwidth_data=$(jq --arg port "$port" --argjson in_bytes "$in_bytes" --argjson out_bytes "$out_bytes" --arg time "$current_time" \
+            '.ports[$port].total_in = (.ports[$port].total_in // 0) + ($in_bytes | tonumber) | .ports[$port].total_out = (.ports[$port].total_out // 0) + ($out_bytes | tonumber) | .ports[$port].last_updated = $time' \
+            <<< "$bandwidth_data")
+        if [[ $? -ne 0 ]]; then
+            echo "$(date): Failed to update JSON for tunnel $tunnel_name, port $port" >> /root/rgt-core/bandwidth_debug.log
+        else
+            echo "$bandwidth_data" > "$bandwidth_file"
+        fi
+    done
+}
+
+# Function to view bandwidth usage
+view_bandwidth_usage() {
+    local service_name="$1"
+    local tunnel_name=$(echo "$service_name" | sed 's/RGT-iran-//;s/RGT-kharej-//;s/.service//')
+
+    # Save current bandwidth data
+    save_bandwidth_data "$service_name"
+
+    # Check if running interactively
+    if [[ -t 0 ]]; then
+        clear
+        colorize cyan "Bandwidth Usage for Tunnel $tunnel_name" bold
+        echo
+    else
+        echo "$(date): Viewing bandwidth for $tunnel_name (non-interactive)" >> /root/rgt-core/bandwidth_debug.log
+    fi
+
+    # Get config ports
+    local config_ports=$(grep -oP 'service[0-9]+' "$CONFIG_DIR/iran-${tunnel_name}.toml" 2>/dev/null | sed 's/service//g' | sort -n | tr '\n' ',' | sed 's/,$//')
+    if [[ -z "$config_ports" ]]; then
+        config_ports=$(grep -oP 'service[0-9]+' "$CONFIG_DIR/kharej-${tunnel_name}.toml" 2>/dev/null | sed 's/service//g' | sort -n | tr '\n' ',' | sed 's/,$//')
+    fi
+    if [[ -z "$config_ports" ]]; then
+        if [[ -t 0 ]]; then
+            colorize red "Could not determine config ports."
+            press_key
+        else
+            echo "$(date): Could not determine config ports for $tunnel_name" >> /root/rgt-core/bandwidth_debug.log
+        fi
+        return 1
+    fi
+
+    # Get transport type
+    local transport=$(grep "type = " "$CONFIG_DIR/iran-${tunnel_name}.toml" 2>/dev/null | grep -oP 'type = "\K[^"]+' | head -1)
+    if [[ -z "$transport" ]]; then
+        transport=$(grep "type = " "$CONFIG_DIR/kharej-${tunnel_name}.toml" 2>/dev/null | grep -oP 'type = "\K[^"]+' | head -1)
+    fi
+    [[ -z "$transport" ]] && transport="tcp"
+
+    # Display bandwidth for each config port
+    local bandwidth_file="${BANDWIDTH_DIR}/${tunnel_name}.json"
+    if [[ ! -f "$bandwidth_file" ]]; then
+        if [[ -t 0 ]]; then
+            colorize red "No bandwidth data available for tunnel $tunnel_name."
+            press_key
+        else
+            echo "$(date): No bandwidth data available for $tunnel_name" >> /root/rgt-core/bandwidth_debug.log
+        fi
+        return 1
+    fi
+
+    local bandwidth_data=$(cat "$bandwidth_file")
+    IFS=',' read -r -a ports <<< "$config_ports"
+    if [[ -t 0 ]]; then
+        colorize yellow "Bandwidth usage for config ports ($config_ports):"
+        echo
+    fi
+    for port in "${ports[@]}"; do
+        local total_in_bytes=$(jq --arg port "$port" '.ports[$port].total_in // 0' <<< "$bandwidth_data")
+        local total_out_bytes=$(jq --arg port "$port" '.ports[$port].total_out // 0' <<< "$bandwidth_data")
+        local in_mb=$(echo "scale=2; $total_in_bytes / 1024 / 1024" | bc 2>/dev/null)
+        local out_mb=$(echo "scale=2; $total_out_bytes / 1024 / 1024" | bc 2>/dev/null)
+        [[ -z "$in_mb" ]] && in_mb="0.00"
+        [[ -z "$out_mb" ]] && out_mb="0.00"
+        if [[ -t 0 ]]; then
+            colorize cyan "Port $port ($transport):"
+            echo "  Total Input: $in_mb MB"
+            echo "  Total Output: $out_mb MB"
+        else
+            echo "$(date): Tunnel $tunnel_name, port $port, total_in=$in_mb MB, total_out=$out_mb MB" >> /root/rgt-core/bandwidth_debug.log
+        fi
+    done
+
+    if [[ -t 0 ]]; then
+        colorize yellow "Note: Bandwidth is tracked using iptables and saved every 5 minutes."
+        colorize yellow "To reset counters, run: iptables -Z and rm $bandwidth_file"
+        colorize yellow "For advanced monitoring, consider tools like 'iftop -f \"port $config_ports\"'."
+        press_key
     fi
 }
 
@@ -388,6 +559,8 @@ EOF
     systemctl daemon-reload
     systemctl enable --now "RGT-iran-${tunnel_name}.service" || { colorize red "Failed to enable service"; return 1; }
     colorize green "Iran server configuration completed for tunnel '$tunnel_name'."
+    # Initialize bandwidth tracking
+    save_bandwidth_data "RGT-iran-${tunnel_name}.service"
 }
 
 # Function to configure Kharej server
@@ -545,76 +718,8 @@ EOF
     systemctl daemon-reload
     systemctl enable --now "RGT-kharej-${tunnel_name}.service" || { colorize red "Failed to enable service"; return 1; }
     colorize green "Kharej server configuration completed for tunnel '$tunnel_name'."
-}
-
-# Function to view bandwidth usage
-view_bandwidth_usage() {
-    local service_name="$1"
-    local tunnel_name=$(echo "$service_name" | sed 's/RGT-iran-//;s/RGT-kharej-//;s/.service//')
-    clear
-    colorize cyan "Bandwidth Usage for Tunnel $tunnel_name" bold
-    echo
-
-    # Get tunnel port and config ports
-    local tunnel_port=$(grep "bind_addr" "$CONFIG_DIR/iran-${tunnel_name}.toml" 2>/dev/null | grep -oP ':(\d+)' | cut -d':' -f2)
-    if [[ -z "$tunnel_port" ]]; then
-        tunnel_port=$(grep "remote_addr" "$CONFIG_DIR/kharej-${tunnel_name}.toml" 2>/dev/null | grep -oP ':(\d+)' | cut -d':' -f2)
-    fi
-    if [[ -z "$tunnel_port" ]]; then
-        colorize red "Could not determine tunnel port."
-        press_key
-        return 1
-    fi
-
-    # Get config ports
-    local config_ports=$(grep -oP 'service[0-9]+' "$CONFIG_DIR/iran-${tunnel_name}.toml" 2>/dev/null | sed 's/service//g' | sort -n | tr '\n' ',' | sed 's/,$//')
-    if [[ -z "$config_ports" ]]; then
-        config_ports=$(grep -oP 'service[0-9]+' "$CONFIG_DIR/kharej-${tunnel_name}.toml" 2>/dev/null | sed 's/service//g' | sort -n | tr '\n' ',' | sed 's/,$//')
-    fi
-    if [[ -z "$config_ports" ]]; then
-        colorize red "Could not determine config ports."
-        press_key
-        return 1
-    fi
-
-    # Get transport type from config
-    local transport=$(grep "type = " "$CONFIG_DIR/iran-${tunnel_name}.toml" 2>/dev/null | grep -oP 'type = "\K[^"]+' | head -1)
-    if [[ -z "$transport" ]]; then
-        transport=$(grep "type = " "$CONFIG_DIR/kharej-${tunnel_name}.toml" 2>/dev/null | grep -oP 'type = "\K[^"]+' | head -1)
-    fi
-    [[ -z "$transport" ]] && transport="tcp"
-
-    # Setup iptables rules for each config port
-    IFS=',' read -r -a ports <<< "$config_ports"
-    for port in "${ports[@]}"; do
-        # Clear existing rules for this port to avoid duplication
-        iptables -D INPUT -p "$transport" --dport "$port" -j ACCEPT 2>/dev/null
-        iptables -D OUTPUT -p "$transport" --sport "$port" -j ACCEPT 2>/dev/null
-        # Add new rules
-        iptables -A INPUT -p "$transport" --dport "$port" -j ACCEPT
-        iptables -A OUTPUT -p "$transport" --sport "$port" -j ACCEPT
-    done
-
-    # Display bandwidth for each config port
-    colorize yellow "Bandwidth usage for config ports ($config_ports):"
-    echo
-    for port in "${ports[@]}"; do
-        colorize cyan "Port $port ($transport):"
-        local in_bytes=$(iptables -L INPUT -v -n --line-numbers | grep "dpt:$port" | grep "$transport" | awk '{print $2}' | head -1)
-        local out_bytes=$(iptables -L OUTPUT -v -n --line-numbers | grep "spt:$port" | grep "$transport" | awk '{print $2}' | head -1)
-        local in_mb=$(echo "scale=2; $in_bytes / 1024 / 1024" | bc 2>/dev/null)
-        local out_mb=$(echo "scale=2; $out_bytes / 1024 / 1024" | bc 2>/dev/null)
-        [[ -z "$in_mb" ]] && in_mb="0.00"
-        [[ -z "$out_mb" ]] && out_mb="0.00"
-        echo "  Input: $in_mb MB"
-        echo "  Output: $out_mb MB"
-    done
-
-    # Note about iptables
-    colorize yellow "Note: Bandwidth is tracked using iptables for specific ports."
-    colorize yellow "To reset counters, run: iptables -Z"
-    colorize yellow "For advanced monitoring, consider tools like 'iftop -f \"port $config_ports\"'."
-    press_key
+    # Initialize bandwidth tracking
+    save_bandwidth_data "RGT-kharej-${tunnel_name}.service"
 }
 
 # Function to edit tunnel
@@ -851,7 +956,6 @@ manage_tunnel() {
     for config_path in "$CONFIG_DIR"/iran-*.toml; do
         if [[ -f "$config_path" ]]; then
             tunnel_name=$(basename "$config_path" .toml | sed 's/iran-//')
-            # Try to get tunnel port and config ports from kharej config if available
             kharej_config="$CONFIG_DIR/kharej-${tunnel_name}.toml"
             if [[ -f "$kharej_config" ]]; then
                 tunnel_port=$(grep "remote_addr" "$kharej_config" 2>/dev/null | grep -oP ':(\d+)' | cut -d':' -f2)
@@ -893,7 +997,6 @@ manage_tunnel() {
     tunnel_type="${config_types[$((choice - 1))]}"
     tunnel_name=$(basename "${selected_config%.toml}" | sed 's/iran-//;s/kharej-//')
     service_name="RGT-${tunnel_type}-${tunnel_name}.service"
-    # Check for consecutive errors
     check_consecutive_errors "$service_name"
     clear
     colorize cyan "Commands for Tunnel $tunnel_name:" bold
@@ -925,6 +1028,7 @@ destroy_tunnel() {
     service_name="RGT-${tunnel_type}-${tunnel_name}.service"
     service_path="${SERVICE_DIR}/${service_name}"
     [[ -f "$config_path" ]] && rm -f "$config_path"
+    [[ -f "${BANDWIDTH_DIR}/${tunnel_name}.json" ]] && rm -f "${BANDWIDTH_DIR}/${tunnel_name}.json"
     [[ -f "$service_path" ]] && systemctl disable --now "$service_name" && rm -f "$service_path"
     systemctl daemon-reload
     colorize green "Tunnel $tunnel_name destroyed successfully."
@@ -1031,11 +1135,59 @@ display_menu() {
 
 # Main loop
 install_dependencies
+mkdir -p "$BANDWIDTH_DIR"
+if [[ "$1" == "view_bandwidth" && -n "$2" ]]; then
+    view_bandwidth_usage "$2"
+    exit 0
+fi
 # Make script executable as 'RGT' command on first run
 if [[ ! -f "${SCRIPT_PATH}" ]]; then
     cp "$0" "${SCRIPT_PATH}"
     chmod +x "${SCRIPT_PATH}"
     colorize green "Script is now executable as 'RGT' command." bold
+fi
+# Setup bandwidth tracking timer
+if [[ ! -f "/etc/systemd/system/rgt-bandwidth-save.timer" ]]; then
+    cat << EOF > /usr/local/bin/rgt_bandwidth_save.sh
+#!/bin/bash
+CONFIG_DIR="/root/rgt-core"
+SERVICE_DIR="/etc/systemd/system"
+
+for service_name in \$(ls "\$SERVICE_DIR"/RGT-*.service 2>/dev/null | xargs -n 1 basename); do
+    /usr/local/bin/RGT view_bandwidth "\$service_name" >> /root/rgt-core/bandwidth_debug.log 2>&1
+done
+EOF
+    chmod +x /usr/local/bin/rgt_bandwidth_save.sh
+
+    cat << EOF > /etc/systemd/system/rgt-bandwidth-save.service
+[Unit]
+Description=RGT Bandwidth Save Service
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /usr/local/bin/rgt_bandwidth_save.sh
+TimeoutSec=60
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    cat << EOF > /etc/systemd/system/rgt-bandwidth-save.timer
+[Unit]
+Description=Run RGT Bandwidth Save every 5 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+Unit=rgt-bandwidth-save.service
+
+[Install]
+WantedBy=timers.target
+EOF
+    systemctl daemon-reload
+    systemctl enable --now rgt-bandwidth-save.timer
+    colorize green "Bandwidth tracking timer enabled (runs every 5 minutes)." bold
 fi
 while true; do
     display_menu
