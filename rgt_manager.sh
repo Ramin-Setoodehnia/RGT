@@ -1,10 +1,5 @@
 #!/bin/bash
 
-# Remove Windows-style line endings if present
-if [[ $(file "$0" | grep -c "CRLF") -gt 0 ]]; then
-    sed -i 's/\r$//' "$0"
-fi
-
 # Check if the script is run as root
 if [[ $EUID -ne 0 ]]; then
     echo "This script must be run as root"
@@ -192,8 +187,6 @@ update_script() {
         press_key
         return 1
     fi
-    # Remove Windows-style line endings from downloaded script
-    sed -i 's/\r$//' "$TEMP_SCRIPT"
     if ! grep -q "RGT Tunnel" "$TEMP_SCRIPT"; then
         colorize red "Downloaded file does not appear to be a valid RGT script."
         rm -f "$TEMP_SCRIPT"
