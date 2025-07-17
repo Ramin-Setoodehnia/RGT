@@ -26,12 +26,15 @@ RGT Tunnel Manager
 اجرا RGT:
 
 اگر سرور شما به گیتهاب دسترسی دارد :
+```
 wget https://github.com/black-sec/RGT/raw/main/core/RGT_x86_64_linux.zip -O /root/RGT/RGT_x86_64_linux.zip
+```
 
 
 اگر به GitHub دسترسی ندارید، فایل RGT_x86_64_linux.zip را با SFTP به مسیر /root/RGT/ روی سرور آپلود کنید:
-sftp root@<آی‌پی-سرور>
+```
 put RGT_x86_64_linux.zip /root/RGT/RGT_x86_64_linux.zip
+```
 
 
 
@@ -39,8 +42,10 @@ put RGT_x86_64_linux.zip /root/RGT/RGT_x86_64_linux.zip
 دانلود و اجرای اسکریپت:
 
 اسکریپت را از لینک زیر دانلود کنید:
+```
 wget https://github.com/black-sec/RGT/raw/main/rgt_manager.sh -O /root/rgt_manager.sh
 chmod +x /root/rgt_manager.sh
+```
 
 
 یا فایل rgt_manager.sh را با SFTP به مسیر /root/ آپلود کنید.
@@ -48,12 +53,9 @@ chmod +x /root/rgt_manager.sh
 
 
 اجرای اسکریپت:
-./rgt_manager.sh
-
-
-اگر از فایل زیپ محلی استفاده می‌کنید، اجرا کنید:
-RGT_LOCAL_ZIP=/root/RGT/RGT_x86_64_linux.zip ./rgt_manager.sh
-
+```
+RGT
+```
 
 
 
@@ -107,7 +109,9 @@ RGT_LOCAL_ZIP=/root/RGT/RGT_x86_64_linux.zip ./rgt_manager.sh
 مثال: راه‌اندازی تونل معکوس
 
 اسکریپت را اجرا کنید:
+```
 RGT
+```
 
 
 از منوی اصلی، 1) راه‌اندازی تونل → 2) معکوس → 1) ایران را انتخاب کنید 
@@ -133,9 +137,10 @@ RGT
 دسترسی به GitHub: اگر سرور شما به GitHub دسترسی ندارد، فایل RGT_x86_64_linux.zip را در /root/RGT/ قرار دهید و اسکریپت را با متغیر RGT_LOCAL_ZIP اجرا کنید.
 
 فایروال: مطمئن شوید پورت‌های انتخابی (مثلاً 4000/UDP و 3530/TCP) در فایروال باز هستند:
+```
 ufw allow 4000/udp
 ufw allow 3530/tcp
-
+```
 
 مانیتورینگ پهنای باند: پس از راه‌اندازی تونل، از گزینه مشاهده پهنای باند برای بررسی مصرف استفاده کنید.
 
