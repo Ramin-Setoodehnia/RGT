@@ -21,7 +21,7 @@ SCRIPT_PATH="/usr/local/bin/RGT"
 
 # Function to press key to continue
 press_key() {
-    read -p "Press any key to continue..."
+    read -rp "Press any key to continue..."
 }
 # Function to colorize text
 colorize() {
