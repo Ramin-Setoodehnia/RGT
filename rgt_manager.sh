@@ -583,9 +583,23 @@ After=network.target
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash -c "ip link show vxlan${vxlan_id} >/dev/null 2>&1 || ip link add vxlan${vxlan_id} type vxlan id ${vxlan_id} local $local_ip remote $remote_ip dstport $tunnel_port dev $network_interface; ip link show br${vxlan_id} >/dev/null 2>&1 || ip link add name br${vxlan_id} type bridge; ip link set vxlan${vxlan_id} master br${vxlan_id}; ip link set br${vxlan_id} up; ip link set vxlan${vxlan_id} up; ip addr flush dev br${vxlan_id} 2>/dev/null; ip addr add $iran_bridge_ip dev br${vxlan_id}; systemctl restart haproxy"
-ExecStop=/bin/bash -c "ip link delete vxlan${vxlan_id} 2>/dev/null; ip link delete br${vxlan_id} 2>/dev/null; systemctl restart haproxy"
+ExecStart=/bin/bash -c '
+  ip link show vxlan${vxlan_id} >/dev/null 2>&1 || ip link add vxlan${vxlan_id} type vxlan id ${vxlan_id} local $local_ip remote $remote_ip dstport $tunnel_port dev $network_interface;
+  ip link show br${vxlan_id} >/dev/null 2>&1 || ip link add name br${vxlan_id} type bridge;
+  ip link set vxlan${vxlan_id} master br${vxlan_id};
+  ip link set br${vxlan_id} up;
+  ip link set vxlan${vxlan_id} up;
+  ip addr flush dev br${vxlan_id} 2>/dev/null;
+  ip addr add $iran_bridge_ip dev br${vxlan_id};
+  systemctl restart haproxy
+'
+ExecStop=/bin/bash -c '
+  ip link delete vxlan${vxlan_id} 2>/dev/null;
+  ip link delete br${vxlan_id} 2>/dev/null;
+  systemctl restart haproxy
+'
 RemainAfterExit=yes
+
 
 [Install]
 WantedBy=multi-user.target
