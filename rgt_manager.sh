@@ -1,11 +1,4 @@
 #!/bin/bash
-# Check if the script is run as root
-if [[ $EUID -ne 0 ]]; then
-    echo "This script must be run as root"
-    sleep 1
-    exit 1
-fi
-
 # Define colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -76,7 +69,7 @@ function detect_network_interface() {
 }
 
 # Function to install dependencies
-install_dependencies() {
+function install_dependencies() {
     if ! command -v unzip &> /dev/null; then
         colorize yellow "Installing unzip..."
         apt-get update
@@ -110,7 +103,7 @@ install_dependencies() {
 }
 
 # Function to display manual download instructions
-manual_download_instructions() {
+function manual_download_instructions() {
     colorize red "Failed to download RGT core from GitHub due to network restrictions."
     echo
     colorize yellow "Please follow these steps to manually download and install RGT core:"
@@ -138,7 +131,7 @@ manual_download_instructions() {
 }
 
 # Function to validate downloaded zip file
-validate_zip_file() {
+function validate_zip_file() {
     local zip_file="$1"
     if [[ ! -f "$zip_file" ]]; then
         colorize red "Downloaded file does not exist."
@@ -156,7 +149,7 @@ validate_zip_file() {
 }
 
 # Function to download and install rgt
-download_and_extract_rgt() {
+function download_and_extract_rgt() {
     if [[ -f "${RGT_BIN}" ]] && [[ -x "${RGT_BIN}" ]]; then
         colorize green "RGT is already installed and executable." bold
         sleep 1
@@ -200,7 +193,7 @@ download_and_extract_rgt() {
 }
 
 # Function to update script
-update_script() {
+function update_script() {
     clear
     colorize cyan "Updating RGT Manager Script" bold
     echo
@@ -227,7 +220,7 @@ update_script() {
 }
 
 # Function to check if a port is in use
-check_port() {
+function check_port() {
     local port=$1
     local transport=$2
     if [[ "$transport" == "tcp" ]]; then
@@ -240,7 +233,7 @@ check_port() {
 }
 
 # Function to validate IPv6 address
-check_ipv6() {
+function check_ipv6() {
     local ip=$1
     ip="${ip#[}"
     ip="${ip%]}"
@@ -249,7 +242,7 @@ check_ipv6() {
 }
 
 # Function to validate IPv4 address
-check_ipv4() {
+function check_ipv4() {
     local ip=$1
     ipv4_pattern="^([0-9]{1,3}\.){3}[0-9]{1,3}$"
     if [[ $ip =~ $ipv4_pattern ]]; then
@@ -263,7 +256,7 @@ check_ipv4() {
 }
 
 # Function to check for consecutive errors and restart
-check_consecutive_errors() {
+function check_consecutive_errors() {
     local service_name="$1"
     local tunnel_name=$(echo "$service_name" | sed 's/RGT-//;s/.service//')
     local logs=$(journalctl -u "$service_name" -n 50 --no-pager | tail -n 2)
@@ -280,7 +273,7 @@ check_consecutive_errors() {
 }
 
 # Function to validate VXLAN setup
-validate_vxlan_setup() {
+function validate_vxlan_setup() {
     local local_ip=$1
     local remote_ip=$2
     local tunnel_port=$3
@@ -302,7 +295,7 @@ validate_vxlan_setup() {
 }
 
 # Function to configure Direct tunnel
-direct_server_configuration() {
+function direct_server_configuration() {
     clear
     colorize cyan "Configuring Direct Tunnel" bold
     echo
@@ -321,7 +314,7 @@ direct_server_configuration() {
 HAPROXY_CFG="/etc/haproxy/haproxy.cfg"
 
 # Function to configure Direct tunnel for Iran server
-configure_direct_iran() {
+function configure_direct_iran() {
     read -p "[*] Enter tunnel name (e.g., direct-tunnel): " tunnel_name
     tunnel_name=$(echo "$tunnel_name" | tr ' ' '-' | tr -d '[:space:]')
     if [[ -z "$tunnel_name" ]]; then
@@ -625,7 +618,7 @@ EOF
 }
 
 # Function to configure Direct tunnel for Kharej server
-configure_direct_kharej() {
+function configure_direct_kharej() {
     read -p "[*] Enter tunnel name (e.g., direct-tunnel): " tunnel_name
     tunnel_name=$(echo "$tunnel_name" | tr ' ' '-' | tr -d '[:space:]')
     if [[ -z "$tunnel_name" ]]; then
@@ -791,7 +784,7 @@ EOF
 }
 
 # Function to configure Iran server
-iran_server_configuration() {
+function iran_server_configuration() {
     clear
     colorize cyan "Configuring Iran Server" bold
     echo
@@ -928,7 +921,7 @@ EOF
 }
 
 # Function to configure Kharej server
-kharej_server_configuration() {
+function kharej_server_configuration() {
     clear
     colorize cyan "Configuring Kharej Server" bold
     echo
@@ -1059,7 +1052,7 @@ EOF
 }
 
 # Function to edit tunnel
-edit_tunnel() {
+function edit_tunnel() {
     local config_path="$1"
     local tunnel_type="$2"
     local tunnel_name=$(basename "${config_path%.toml}" "${config_path%.conf}" | sed 's/iran-//;s/kharej-//;s/direct-iran-//;s/direct-kharej-//')
@@ -1106,7 +1099,7 @@ edit_tunnel() {
 }
 
 # Function to edit tunnel port
-edit_tunnel_port() {
+function edit_tunnel_port() {
     local config_path="$1"
     local tunnel_type="$2"
     local tunnel_name="$3"
@@ -1157,7 +1150,7 @@ EOF
 }
 
 # Function to edit config port
-edit_config_port() {
+function edit_config_port() {
     local config_path="$1"
     local tunnel_type="$2"
     local tunnel_name=$(basename "${config_path%.toml}" | sed 's/iran-//;s/kharej-//')
@@ -1191,7 +1184,7 @@ edit_config_port() {
 }
 
 # Function to edit security token
-edit_security_token() {
+function edit_security_token() {
     local config_path="$1"
     local tunnel_type="$2"
     local tunnel_name=$(basename "${config_path%.toml}" | sed 's/iran-//;s/kharej-//')
@@ -1204,7 +1197,7 @@ edit_security_token() {
 }
 
 # Function to edit remote IP for direct tunnel
-edit_remote_ip() {
+function edit_remote_ip() {
     local config_path="$1"
     local tunnel_type="$2"
     local tunnel_name=$(basename "${config_path%.conf}" | sed 's/direct-iran-//;s/direct-kharej-//')
@@ -1245,7 +1238,7 @@ EOF
 }
 
 # Function to edit HAProxy ports (Iran only)
-edit_haproxy_ports() {
+function edit_haproxy_ports() {
     local config_path="$1"
     local tunnel_type="$2"
     local tunnel_name=$(basename "${config_path%.conf}" | sed 's/direct-iran-//')
@@ -1312,7 +1305,7 @@ EOF
 }
 
 # Function to edit Iran bridge IP (Iran only)
-edit_iran_bridge_ip() {
+function edit_iran_bridge_ip() {
     local config_path="$1"
     local tunnel_type="$2"
     local tunnel_name=$(basename "${config_path%.conf}" | sed 's/direct-iran-//')
@@ -1351,7 +1344,7 @@ EOF
 }
 
 # Function to edit Kharej bridge IP
-edit_kharej_bridge_ip() {
+function edit_kharej_bridge_ip() {
     local config_path="$1"
     local tunnel_type="$2"
     local tunnel_name=$(basename "${config_path%.conf}" | sed 's/direct-iran-//;s/direct-kharej-//')
@@ -1403,7 +1396,7 @@ EOF
 }
 
 # Function to add new ports
-add_new_ports() {
+function add_new_ports() {
     local config_path="$1"
     local tunnel_type="$2"
     local tunnel_name=$(basename "${config_path%.toml}" | sed 's/iran-//;s/kharej-//')
@@ -1457,7 +1450,7 @@ EOF
 }
 
 # Function to edit Iran IP (Kharej only)
-edit_iran_ip() {
+function edit_iran_ip() {
     local config_path="$1"
     local tunnel_name=$(basename "${config_path%.toml}" | sed 's/kharej-//')
     read -p "[*] Enter new Iran server IP (IPv4 or [IPv6]): " new_ip
@@ -1477,7 +1470,7 @@ edit_iran_ip() {
 }
 
 # Function to manage tunnels
-manage_tunnel() {
+function manage_tunnel() {
     clear
     local tunnel_found=0
     colorize cyan "List of existing tunnels:" bold
@@ -1718,7 +1711,7 @@ manage_tunnel() {
 }
 
 # Function to destroy tunnel
-destroy_tunnel() {
+function destroy_tunnel() {
     local config_path="$1"
     local tunnel_type="$2"
     tunnel_name=$(basename "${config_path%.toml}" "${config_path%.conf}" | sed 's/iran-//;s/kharej-//;s/direct-iran-//;s/direct-kharej-//')
@@ -1781,9 +1774,8 @@ destroy_tunnel() {
     press_key
     return 0
 }
-
 # Function to restart service
-restart_service() {
+function restart_service() {
     local service_name="$1"
     colorize yellow "Restarting $service_name..." bold
     if systemctl list-units --type=service | grep -q "$service_name"; then
@@ -1813,7 +1805,7 @@ view_tunnel_status() {
 }
 
 # Function to remove rgt core
-remove_core() {
+function remove_core() {
     clear
     if ls "$CONFIG_DIR"/*.toml "$CONFIG_DIR"/*.conf &> /dev/null; then
         colorize red "Remove all tunnels before removing RGT core."
@@ -1845,7 +1837,7 @@ remove_core() {
     press_key
 }
 # Function to display logo
-display_logo() {
+function display_logo() {
     echo -e "${CYAN}"
     cat << "EOF"
 ██████╗  ██████╗ ████████╗
@@ -1859,7 +1851,7 @@ EOF
 }
 
 # Function to display server info
-display_server_info() {
+function display_server_info() {
     SERVER_IP=$(hostname -I | awk '{print $1}')
     echo -e "${CYAN}IP Address:${NC} $SERVER_IP"
     if [[ -f "${RGT_BIN}" ]]; then
@@ -1871,7 +1863,7 @@ display_server_info() {
 }
 
 # Function to display menu
-display_menu() {
+function display_menu() {
     clear
     display_logo
     echo -e "${CYAN}Version: ${YELLOW}1.0${NC}"
