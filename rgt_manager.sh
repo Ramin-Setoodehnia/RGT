@@ -1,4 +1,11 @@
 #!/bin/bash
+# Check if the script is run as root
+if [[ $EUID -ne 0 ]]; then
+    echo "This script must be run as root"
+    sleep 1
+    exit 1
+fi
+
 # Define colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -482,7 +489,7 @@ function configure_direct_iran() {
         mkdir -p /etc/haproxy
         cat << EOF > "$HAPROXY_CFG"
 global
-    log /dev/log local0
+    log /dev/log local0 warning
     maxconn 4096
     user haproxy
     group haproxy
@@ -1268,7 +1275,7 @@ function edit_haproxy_ports() {
     haproxy_config="/etc/haproxy/haproxy-${tunnel_name}.cfg"
     cat << EOF > "$haproxy_config"
 global
-    log /dev/log local0
+    log /dev/log local0 warning
     maxconn 4096
     user haproxy
     group haproxy
@@ -1481,6 +1488,28 @@ function manage_tunnel() {
     declare -a tunnel_names
     declare -a service_names
 
+    # Function to check tunnel status
+    check_tunnel_status() {
+        local service_name="$1"
+        local tunnel_type="$2"
+        local tunnel_name="$3"
+        # Check if service is not active
+        if ! systemctl is-active "$service_name" &> /dev/null; then
+            return 1
+        fi
+        # Check for HAProxy errors for direct-iran tunnels
+        if [[ "$tunnel_type" == "direct-iran" ]]; then
+            local ports=$(grep "^ports=" "${CONFIG_DIR}/direct-iran-${tunnel_name}.conf" 2>/dev/null | cut -d'=' -f2 | tr -d ' ')
+            IFS=',' read -r -a port_array <<< "$ports"
+            for port in "${port_array[@]}"; do
+                if journalctl -u haproxy -n 100 --no-pager | grep -q "backend RGT_backend_${port}.*no server available"; then
+                    return 1
+                fi
+            done
+        fi
+        return 0
+    }
+
     # List Direct Iran tunnels
     for config_path in "$CONFIG_DIR"/direct-iran-*.conf; do
         if [[ -f "$config_path" ]]; then
@@ -1498,7 +1527,11 @@ function manage_tunnel() {
             config_types+=("$tunnel_type")
             tunnel_names+=("$tunnel_name")
             service_names+=("$service_name")
-            echo -e "${CYAN}${index}${NC}) ${GREEN}Direct Iran Tunnel ${tunnel_name}${NC} (Tunnel Port: ${YELLOW}${tunnel_port}${NC}, HAProxy Ports: ${YELLOW}${config_ports}${NC}, Bridge IP: ${YELLOW}${bridge_ip}${NC})"
+            if check_tunnel_status "$service_name" "$tunnel_type" "$tunnel_name"; then
+                echo -e "${CYAN}${index}${NC}) ${GREEN}Direct Iran Tunnel ${tunnel_name}${NC} (Tunnel Port: ${YELLOW}${tunnel_port}${NC}, HAProxy Ports: ${YELLOW}${config_ports}${NC}, Bridge IP: ${YELLOW}${bridge_ip}${NC})"
+            else
+                echo -e "${CYAN}${index}${NC}) ${RED}Direct Iran Tunnel ${tunnel_name}${NC} (Tunnel Port: ${YELLOW}${tunnel_port}${NC}, HAProxy Ports: ${YELLOW}${config_ports}${NC}, Bridge IP: ${YELLOW}${bridge_ip}${NC})"
+            fi
             ((index++))
         fi
     done
@@ -1518,7 +1551,11 @@ function manage_tunnel() {
             config_types+=("$tunnel_type")
             tunnel_names+=("$tunnel_name")
             service_names+=("$service_name")
-            echo -e "${CYAN}${index}${NC}) ${GREEN}Direct Kharej Tunnel ${tunnel_name}${NC} (Tunnel Port: ${YELLOW}${tunnel_port}${NC}, Bridge IP: ${YELLOW}${bridge_ip}${NC})"
+            if check_tunnel_status "$service_name" "$tunnel_type" "$tunnel_name"; then
+                echo -e "${CYAN}${index}${NC}) ${GREEN}Direct Kharej Tunnel ${tunnel_name}${NC} (Tunnel Port: ${YELLOW}${tunnel_port}${NC}, Bridge IP: ${YELLOW}${bridge_ip}${NC})"
+            else
+                echo -e "${CYAN}${index}${NC}) ${RED}Direct Kharej Tunnel ${tunnel_name}${NC} (Tunnel Port: ${YELLOW}${tunnel_port}${NC}, Bridge IP: ${YELLOW}${bridge_ip}${NC})"
+            fi
             ((index++))
         fi
     done
@@ -1538,7 +1575,11 @@ function manage_tunnel() {
             config_types+=("$tunnel_type")
             tunnel_names+=("$tunnel_name")
             service_names+=("$service_name")
-            echo -e "${CYAN}${index}${NC}) ${GREEN}Iran Tunnel ${tunnel_name}${NC} (Tunnel Port: ${YELLOW}${tunnel_port}${NC}, Service Ports: ${YELLOW}${config_ports}${NC})"
+            if check_tunnel_status "$service_name" "$tunnel_type" "$tunnel_name"; then
+                echo -e "${CYAN}${index}${NC}) ${GREEN}Iran Tunnel ${tunnel_name}${NC} (Tunnel Port: ${YELLOW}${tunnel_port}${NC}, Service Ports: ${YELLOW}${config_ports}${NC})"
+            else
+                echo -e "${CYAN}${index}${NC}) ${RED}Iran Tunnel ${tunnel_name}${NC} (Tunnel Port: ${YELLOW}${tunnel_port}${NC}, Service Ports: ${YELLOW}${config_ports}${NC})"
+            fi
             ((index++))
         fi
     done
@@ -1558,7 +1599,11 @@ function manage_tunnel() {
             config_types+=("$tunnel_type")
             tunnel_names+=("$tunnel_name")
             service_names+=("$service_name")
-            echo -e "${CYAN}${index}${NC}) ${GREEN}Kharej Tunnel ${tunnel_name}${NC} (Tunnel Port: ${YELLOW}${tunnel_port}${NC}, Service Ports: ${YELLOW}${config_ports}${NC})"
+            if check_tunnel_status "$service_name" "$tunnel_type" "$tunnel_name"; then
+                echo -e "${CYAN}${index}${NC}) ${GREEN}Kharej Tunnel ${tunnel_name}${NC} (Tunnel Port: ${YELLOW}${tunnel_port}${NC}, Service Ports: ${YELLOW}${config_ports}${NC})"
+            else
+                echo -e "${CYAN}${index}${NC}) ${RED}Kharej Tunnel ${tunnel_name}${NC} (Tunnel Port: ${YELLOW}${tunnel_port}${NC}, Service Ports: ${YELLOW}${config_ports}${NC})"
+            fi
             ((index++))
         fi
     done
@@ -1584,13 +1629,6 @@ function manage_tunnel() {
     tunnel_name="${tunnel_names[$((choice - 1))]}"
     service_name="${service_names[$((choice - 1))]}"
     service_path="${SERVICE_DIR}/${service_name}"
-
-    # Debug output
-    #echo "Debug: selected_config=$selected_config"
-    #echo "Debug: tunnel_type=$tunnel_type"
-    #echo "Debug: tunnel_name=$tunnel_name"
-    #echo "Debug: service_name=$service_name"
-    #echo "Debug: service_path=$service_path"
 
     # Verify config and service files
     if [[ ! -f "$selected_config" ]]; then
@@ -1678,24 +1716,7 @@ function manage_tunnel() {
         6)
             read -p "Are you sure you want to delete tunnel $tunnel_name? (y/n): " confirm
             if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
-                systemctl stop "$service_name" 2>/dev/null
-                systemctl disable "$service_name" 2>/dev/null
-                rm -f "$service_path"
-                rm -f "$selected_config"
-                if [[ "$tunnel_type" == "direct-iran" || "$tunnel_type" == "direct-kharej" ]]; then
-                    vxlan_id=$(grep "^vxlan_id=" "$selected_config" 2>/dev/null | cut -d'=' -f2 | tr -d ' ')
-                    ip link delete "vxlan${vxlan_id}" 2>/dev/null
-                    ip link delete "br${vxlan_id}" 2>/dev/null
-                    rm -f "/etc/haproxy/haproxy-${tunnel_name}.cfg"
-                    systemctl restart haproxy
-                    if [[ $? -eq 0 ]]; then
-                        colorize green "HAProxy restarted successfully."
-                    else
-                        colorize red "Failed to restart HAProxy."
-                    fi
-                fi
-                systemctl daemon-reload
-                colorize green "Tunnel $tunnel_name deleted successfully."
+                destroy_tunnel "$selected_config" "$tunnel_type"
             else
                 colorize yellow "Tunnel deletion canceled."
             fi
@@ -1707,16 +1728,15 @@ function manage_tunnel() {
             colorize red "Invalid option!"
             ;;
     esac
-    press_key
 }
 
-# Function to destroy tunnel
 function destroy_tunnel() {
     local config_path="$1"
     local tunnel_type="$2"
     tunnel_name=$(basename "${config_path%.toml}" "${config_path%.conf}" | sed 's/iran-//;s/kharej-//;s/direct-iran-//;s/direct-kharej-//')
     service_name="RGT-${tunnel_type}-${tunnel_name}.service"
-    service_path="${SERVICE_DIR}/${service_name}"
+    service_path="/etc/systemd/system/${service_name}"
+    HAPROXY_CFG="/etc/haproxy/haproxy.cfg"
 
     # Check if config file exists
     if [[ ! -f "$config_path" ]]; then
@@ -1735,6 +1755,7 @@ function destroy_tunnel() {
 
     # Remove the service file
     rm -f "$service_path" || { colorize yellow "Failed to remove service file $service_path."; press_key; return 1; }
+    systemctl daemon-reload || { colorize yellow "Failed to reload systemd."; press_key; return 1; }
 
     # Clean up VXLAN and bridge interfaces for direct tunnels
     if [[ "$tunnel_type" == "direct-iran" || "$tunnel_type" == "direct-kharej" ]]; then
@@ -1743,37 +1764,30 @@ function destroy_tunnel() {
             ip link delete "vxlan${vxlan_id}" 2>/dev/null || colorize yellow "Failed to delete VXLAN interface vxlan${vxlan_id}."
             ip link delete "br${vxlan_id}" 2>/dev/null || colorize yellow "Failed to delete bridge interface br${vxlan_id}."
         fi
-        # Remove HAProxy configuration for direct-iran tunnels
+        # Remove HAProxy configuration file completely for direct-iran tunnels
         if [[ "$tunnel_type" == "direct-iran" ]]; then
-            temp_haproxy_cfg=$(mktemp)
-            cp "$HAPROXY_CFG" "$temp_haproxy_cfg"
-            grep -v "# Tunnel-specific configuration for $tunnel_name" "$HAPROXY_CFG" | \
-                grep -v "frontend RGT_frontend_" | \
-                grep -v "backend RGT_backend_" > "$temp_haproxy_cfg"
-            if ! haproxy -c -f "$temp_haproxy_cfg"; then
-                colorize red "New HAProxy configuration is invalid. Aborting cleanup."
-                rm -f "$temp_haproxy_cfg"
-                press_key
-                return 1
+            if [[ -f "$HAPROXY_CFG" ]]; then
+                rm -f "$HAPROXY_CFG" || { colorize yellow "Failed to remove HAProxy configuration file."; press_key; return 1; }
+                colorize green "HAProxy configuration file removed."
             fi
-            mv "$temp_haproxy_cfg" "$HAPROXY_CFG" || { colorize yellow "Failed to update HAProxy configuration."; press_key; return 1; }
-            chown haproxy:haproxy "$HAPROXY_CFG"
-            chmod 644 "$HAPROXY_CFG"
-            systemctl restart haproxy || { colorize yellow "Failed to restart HAProxy."; press_key; return 1; }
-            colorize green "HAProxy configuration for tunnel '$tunnel_name' removed."
+            # Stop and disable HAProxy
+            systemctl stop haproxy &> /dev/null
+            systemctl disable haproxy &> /dev/null
+            colorize green "HAProxy service stopped and disabled."
         fi
     fi
 
     # Remove the configuration file
     rm -f "$config_path" || { colorize yellow "Failed to remove config file $config_path."; press_key; return 1; }
 
-    # Reload systemd to reflect changes
-    systemctl daemon-reload || { colorize yellow "Failed to reload systemd."; press_key; return 1; }
+    # Clear systemd journal to remove old broadcast messages
+    journalctl --vacuum-time=1s &> /dev/null
 
     colorize green "Tunnel $tunnel_name deleted successfully."
     press_key
     return 0
 }
+
 # Function to restart service
 function restart_service() {
     local service_name="$1"
