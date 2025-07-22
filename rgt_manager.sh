@@ -21,13 +21,13 @@ RGT_BIN="${CONFIG_DIR}/rgt"
 SCRIPT_PATH="/usr/local/bin/RGT"
 
 # Function to press key to continue
-press_key() {
+function press_key() {
     echo
     read -rp "Press any key to continue..."
 }
 
 # Function to colorize text
-colorize() {
+function colorize() {
     local color="$1"
     local text="$2"
     local style="${3:-normal}"
@@ -65,7 +65,7 @@ colorize() {
 }
 
 # Function to detect network interface
-detect_network_interface() {
+function detect_network_interface() {
     local interface=$(ip link | grep -E '^[0-9]+: (eth[0-9]+|ens[0-9]+)' | awk '{print $2}' | cut -d':' -f1 | head -n 1)
     if [[ -z "$interface" ]]; then
         colorize red "No network interface found."
