@@ -32,7 +32,7 @@ put RGT_x86_64_linux.zip /root/RGT/RGT_x86_64_linux.zip
 
 اجرا سریع:
 ```
-bash <(curl -Ls https://raw.githubusercontent.com/black-sec/RGT/main/rgt_manager.sh | tr -d '\r')
+bash <(curl -Ls https://raw.githubusercontent.com/black-sec/RGT/main/rgt_manager.sh)
 ```
 
 اسکریپت را از لینک زیر دانلود کنید:
