@@ -89,6 +89,5 @@ First, install the RGT core with option 3 on both servers (if it fails to instal
 #### Support
 
 - **GitHub Repository**: [black-sec/RGT](https://github.com/black-sec/RGT)
-- **[![Telegram](https://img.shields.io/badge/Telegram--0088CC?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/rogozar_dev) 
-- **Contact**: Via GitHub Issues or Telegram (@Coderman_ir)
+- [![Telegram](https://img.shields.io/badge/Telegram--0088CC?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/rogozar_dev) 
 - **Access Issues**: If you lack GitHub access, coordinate with your server administrator to upload the files.
