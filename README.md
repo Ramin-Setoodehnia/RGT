@@ -1,10 +1,12 @@
-# RGT Tunnel
+![Menu](https://github.com/black-sec/RGT/blob/main/Menu.png)
+
+## RGT Tunnel
 
 ### RGT Tunnel Manager
 
 The RGT script is a powerful tool for setting up tunnels based on TCP and UDP protocols, supporting both direct and reverse methods. The resource usage of this tunnel is optimized, allowing you to set up your tunnel in just a few seconds.
 
-#### Features
+####⚙️Features
 
 - **Fast Setup**: Set up reverse or direct (Iran ↔ Outside) tunnels in a few simple steps.
 - **Bandwidth Monitoring**: Check tunnel bandwidth usage with the lightweight `vnstat` tool.
@@ -85,5 +87,6 @@ First, install the RGT core with option 3 on both servers (if it fails to instal
 #### Support
 
 - **GitHub Repository**: [black-sec/RGT](https://github.com/black-sec/RGT)
+- **[![Telegram](https://img.shields.io/badge/Telegram--0088CC?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/rogozar_dev) 
 - **Contact**: Via GitHub Issues or Telegram (@Coderman_ir)
 - **Access Issues**: If you lack GitHub access, coordinate with your server administrator to upload the files.
