@@ -349,8 +349,7 @@ update_haproxy_config() {
         colorize yellow "HAProxy config file $haproxy_config not found. Creating with default settings..."
         cat << EOF > "$haproxy_config"
 global
-    log /dev/log local0
-    maxconn 4096
+    maxconn 50000
     user haproxy
     group haproxy
     daemon
@@ -379,13 +378,13 @@ EOF
     fi
 
     # Remove existing configuration for this tunnel
-    if ! sed -i "/# RGT Tunnel: $tunnel_name/,/# End RGT Tunnel: $tunnel_name/d" "$haproxy_config" 2>/dev/null; then
+    if ! sed -i "/#start:$tunnel_port/,/#end:$tunnel_port/d" "$haproxy_config" 2>/dev/null; then
         colorize yellow "Failed to remove existing HAProxy config for tunnel $tunnel_name."
     fi
 
     # Append new configuration for this tunnel
     cat << EOF >> "$haproxy_config"
-# RGT Tunnel: $tunnel_name
+#start:$tunnel_port
 EOF
     for port in "${ports[@]}"; do
         cat << EOF >> "$haproxy_config"
@@ -402,7 +401,7 @@ backend vless_backend_${port}
 EOF
     done
     cat << EOF >> "$haproxy_config"
-# End RGT Tunnel: $tunnel_name
+#end:$tunnel_port
 EOF
 
     # Validate HAProxy configuration
@@ -440,7 +439,7 @@ remove_haproxy_config() {
     cp "$haproxy_config" "${haproxy_config}.bak" 2>/dev/null || { colorize yellow "Failed to backup HAProxy config"; }
 
     # Remove configuration for this tunnel
-    sed -i "/# RGT Tunnel: $tunnel_name/,/# End RGT Tunnel: $tunnel_name/d" "$haproxy_config" 2>/dev/null
+    sed -i "/#start:$tunnel_port/,/#end:$tunnel_port/d" "$haproxy_config" 2>/dev/null
 
     # Validate HAProxy configuration
     if [[ -f "$haproxy_config" ]] && ! haproxy -c -f "$haproxy_config" >/dev/null 2>&1; then
@@ -1735,19 +1734,40 @@ manage_tunnel() {
                 systemctl stop "$service_name" 2>/dev/null
                 systemctl disable "$service_name" 2>/dev/null
                 rm -f "$service_path"
-                rm -f "$selected_config"
                 if [[ "$tunnel_type" == "direct-iran" || "$tunnel_type" == "direct-kharej" ]]; then
                     vxlan_id=$(grep "^vxlan_id=" "$selected_config" 2>/dev/null | cut -d'=' -f2 | tr -d ' ')
+                    tunnel_port=$(grep "^dstport=" "$selected_config" 2>/dev/null | cut -d'=' -f2 | tr -d ' ')
                     ip link delete "vxlan${vxlan_id}" 2>/dev/null
                     ip link delete "br${vxlan_id}" 2>/dev/null
-                    rm -f "/etc/haproxy/haproxy-${tunnel_name}.cfg"
-                    systemctl restart haproxy
-                    if [[ $? -eq 0 ]]; then
-                        colorize green "HAProxy restarted successfully."
-                    else
-                        colorize red "Failed to restart HAProxy."
+                    if [[ "$tunnel_type" == "direct-iran" ]]; then
+                        haproxy_config="/etc/haproxy/haproxy.cfg"
+                        if [[ -f "$haproxy_config" ]]; then
+                            cp "$haproxy_config" "${haproxy_config}.bak" 2>/dev/null || {
+                                colorize yellow "Failed to backup HAProxy config."
+                                press_key
+                            }
+                            if ! sed -i "/^[[:space:]]*#start:$tunnel_port[[:space:]]*$/,/^[[:space:]]*#end:$tunnel_port[[:space:]]*$/d" "$haproxy_config" 2>/dev/null; then
+                                colorize yellow "No configuration found for port $tunnel_port in HAProxy."
+                                press_key
+                            else
+                                systemctl restart haproxy 2>/dev/null
+                                if [[ $? -eq 0 ]]; then
+                                    colorize green "Tunnel section removed and HAProxy restarted."
+                                else
+                                    colorize red "Failed to restart HAProxy."
+                                    if [[ -f "${haproxy_config}.bak" ]]; then
+                                        cp "${haproxy_config}.bak" "$haproxy_config" 2>/dev/null
+                                        colorize yellow "Restored HAProxy backup."
+                                    fi
+                                    press_key
+                                    rm -f "$selected_config"
+                                    return 1
+                                fi
+                            fi
+                        fi
                     fi
                 fi
+                rm -f "$selected_config"
                 systemctl daemon-reload
                 colorize green "Tunnel $tunnel_name deleted successfully."
             else
@@ -1763,7 +1783,6 @@ manage_tunnel() {
     esac
     press_key
 }
-
 # Modified destroy_tunnel to handle HAProxy config cleanup
 destroy_tunnel() {
     local config_path="$1"
@@ -1872,7 +1891,7 @@ remove_core() {
         # Remove all RGT-related HAProxy configurations
         if [[ -f "$HAPROXY_CFG" ]]; then
             cp "$HAPROXY_CFG" "${HAPROXY_CFG}.bak" 2>/dev/null
-            sed -i '/# RGT Tunnel:/,/# End RGT Tunnel:/d' "$HAPROXY_CFG" 2>/dev/null
+            sed -i '/#start:/,/#end:/d' "$HAPROXY_CFG" 2>/dev/null
             if haproxy -c -f "$HAPROXY_CFG" >/dev/null 2>&1; then
                 systemctl restart haproxy 2>/dev/null || colorize yellow "Failed to restart HAProxy."
             else
