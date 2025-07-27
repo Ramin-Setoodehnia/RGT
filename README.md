@@ -14,20 +14,6 @@ The RGT script is a powerful tool for setting up tunnels based on TCP and UDP pr
 - **Systemd Integration**: Tunnels run as stable services.
 - **Attractive User Interface**: Colorful menus and clear messages for a better user experience.
 
-#### Quick Start Guide
-
-##### Run RGT:
-
-If your server has access to GitHub:
-```
-wget https://github.com/black-sec/RGT/raw/main/core/RGT_x86_64_linux.zip -O /root/RGT/RGT_x86_64_linux.zip
-```
-
-If you don’t have access to GitHub, upload the `RGT_x86_64_linux.zip` file via SFTP to the `/root/RGT/` directory on your server:
-```
-put RGT_x86_64_linux.zip /root/RGT/RGT_x86_64_linux.zip
-```
-
 ##### Download and Run the Script:
 
 **Quick Execution:**
@@ -46,6 +32,19 @@ Alternatively, upload the `rgt_manager.sh` file via SFTP to the `/root/` directo
 Run the script:
 ```
 RGT
+```
+#### Quick Start Guide
+
+##### Run RGT:
+
+If your server has access to GitHub:
+```
+wget https://github.com/black-sec/RGT/raw/main/core/RGT_x86_64_linux.zip -O /root/RGT/RGT_x86_64_linux.zip
+```
+
+If you don’t have access to GitHub, upload the `RGT_x86_64_linux.zip` file via SFTP to the `/root/RGT/` directory on your server:
+```
+put RGT_x86_64_linux.zip /root/RGT/RGT_x86_64_linux.zip
 ```
 
 #### ✅ Guide to Setting Up a Direct Tunnel with RGT Script
