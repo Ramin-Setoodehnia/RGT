@@ -168,6 +168,7 @@ download_and_extract_rgt() {
     colorize yellow "Downloading RGT core..."
     if ! curl -sSL -o "$ZIP_FILE" "$DOWNLOAD_URL"; then
         rm -rf "$DOWNLOAD_DIR"
+        colorize red "Failed to download RGT core."
         manual_download_instructions
     fi
     if ! validate_zip_file "$ZIP_FILE"; then
@@ -194,8 +195,32 @@ download_and_extract_rgt() {
         manual_download_instructions
     fi
     colorize green "RGT installed successfully." bold
-    cp "$0" "${SCRIPT_PATH}"
+
+    # Save the script to a temporary file to avoid stdin issues
+    TEMP_SCRIPT="/tmp/rgt_manager.sh"
+    colorize yellow "Downloading script for installation..."
+    if ! curl -sSL -o "$TEMP_SCRIPT" "https://raw.githubusercontent.com/black-sec/RGT/main/rgt_manager.sh"; then
+        colorize red "Failed to download script for installation."
+        rm -f "$TEMP_SCRIPT"
+        press_key
+        return 1
+    fi
+    # Verify the downloaded script is complete
+    if ! grep -q "function display_menu" "$TEMP_SCRIPT"; then
+        colorize red "Downloaded script is incomplete (missing display_menu)."
+        rm -f "$TEMP_SCRIPT"
+        press_key
+        return 1
+    fi
+    # Copy the script to SCRIPT_PATH
+    if ! cp "$TEMP_SCRIPT" "${SCRIPT_PATH}"; then
+        colorize red "Failed to copy script to ${SCRIPT_PATH}."
+        rm -f "$TEMP_SCRIPT"
+        press_key
+        return 1
+    fi
     chmod +x "${SCRIPT_PATH}"
+    rm -f "$TEMP_SCRIPT"
     colorize green "Script is now executable as 'RGT' command." bold
 }
 
