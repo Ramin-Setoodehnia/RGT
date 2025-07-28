@@ -22,12 +22,12 @@ The RGT script is a powerful tool for setting up tunnels based on TCP and UDP pr
 
 **Quick Execution:**
 ```
-bash <(curl -Ls https://raw.githubusercontent.com/black-sec/RGT/main/rgt_manager.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/Ramin-Setoodehnia/RGT/main/rgt_manager.sh)
 ```
 
 Download the script from the link below:
 ```
-wget https://github.com/black-sec/RGT/raw/main/rgt_manager.sh -O /root/rgt_manager.sh
+wget https://github.com/Ramin-Setoodehnia/RGT/raw/main/rgt_manager.sh -O /root/rgt_manager.sh
 chmod +x /root/rgt_manager.sh
 ```
 
