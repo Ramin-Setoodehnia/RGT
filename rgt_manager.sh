@@ -63,36 +63,7 @@ colorize() {
     esac
     echo -e "${style_code}${color_code}${text}${reset}"
 }
-# Function to install script to /usr/local/bin/RGT
-install_script() {
-    local TEMP_SCRIPT="/tmp/rgt_manager.sh"
-    local SCRIPT_URL="https://raw.githubusercontent.com/black-sec/RGT/main/rgt_manager.sh"
-    if [[ -f "${SCRIPT_PATH}" ]] && grep -q "function display_menu" "${SCRIPT_PATH}"; then
-        colorize green "Script is already installed and valid." bold
-        return 0
-    fi
-    colorize yellow "Downloading RGT Manager script..."
-    if ! curl -sSL -o "$TEMP_SCRIPT" "$SCRIPT_URL"; then
-        colorize red "Failed to download script from $SCRIPT_URL"
-        press_key
-        return 1
-    fi
-    if ! grep -q "function display_menu" "$TEMP_SCRIPT"; then
-        colorize red "Downloaded script is incomplete (missing display_menu)"
-        rm -f "$TEMP_SCRIPT"
-        press_key
-        return 1
-    fi
-    if ! cp "$TEMP_SCRIPT" "$SCRIPT_PATH"; then
-        colorize red "Failed to copy script to $SCRIPT_PATH"
-        rm -f "$TEMP_SCRIPT"
-        press_key
-        return 1
-    fi
-    chmod +x "$SCRIPT_PATH"
-    rm -f "$TEMP_SCRIPT"
-    colorize green "Script is now executable as 'RGT' command." bold
-}	
+
 # Function to detect network interface
 detect_network_interface() {
     local interface=$(ip link | grep -E '^[0-9]+: (eth[0-9]+|ens[0-9]+)' | awk '{print $2}' | cut -d':' -f1 | head -n 1)
@@ -2008,50 +1979,82 @@ display_menu() {
     echo
 }
 
-# Main function to handle menu logic
-main() {
-    install_dependencies
-    mkdir -p "$CONFIG_DIR"
-    install_script
-    while true; do
-        display_menu
-        read -p "Enter a choice: " choice
-        case $choice in
-            1)
-                clear
-                colorize cyan "Select tunnel type:" bold
-                echo "1) Direct"
-                echo "2) Reverse"
-                read -p "Enter choice: " tunnel_type
-                case $tunnel_type in
-                    1)
-                        direct_server_configuration
-                        ;;
-                    2)
-                        clear
-                        colorize cyan "Select server location:" bold
-                        echo "1) Iran Server"
-                        echo "2) Kharej Server"
-                        read -p "Enter choice: " server_type
-                        case $server_type in
-                            1) iran_server_configuration ;;
-                            2) kharej_server_configuration ;;
-                            *) colorize red "Invalid option!" && sleep 1 ;;
-                        esac
-                        ;;
-                    *) colorize red "Invalid option!" && sleep 1 ;;
-                esac
-                ;;
-            2) manage_tunnel ;;
-            3) download_and_extract_rgt ;;
-            4) remove_core ;;
-            5) update_script ;;
-            6) rgt_tools ;;
-            7) exit 0 ;;
-            *) colorize red "Invalid option!" && sleep 1 ;;
-        esac
-    done
-}
-
-# Execute main function
-main
+# Main loop
+install_dependencies
+mkdir -p "$CONFIG_DIR"
+# Install script if not already installed
+if [[ ! -f "${SCRIPT_PATH}" ]]; then
+    TEMP_SCRIPT="/tmp/rgt_manager.sh"
+    colorize yellow "Installing RGT script to ${SCRIPT_PATH}..."
+    # Download the full script from the repository
+    if ! curl -sSL -o "$TEMP_SCRIPT" "https://raw.githubusercontent.com/black-sec/RGT/main/rgt_manager.sh"; then
+        colorize red "Failed to download script for installation."
+        rm -f "$TEMP_SCRIPT"
+        exit 1
+    fi
+    # Verify the downloaded script is complete
+    if ! grep -q "function display_menu" "$TEMP_SCRIPT" || ! grep -q "function colorize" "$TEMP_SCRIPT"; then
+        colorize red "Downloaded script is incomplete (missing key functions)."
+        rm -f "$TEMP_SCRIPT"
+        exit 1
+    fi
+    # Check file size to ensure it's not truncated
+    if [[ $(stat -c %s "$TEMP_SCRIPT") -lt 1000 ]]; then
+        colorize red "Downloaded script is too small and likely incomplete."
+        rm -f "$TEMP_SCRIPT"
+        exit 1
+    fi
+    # Copy the script to SCRIPT_PATH
+    if ! cp "$TEMP_SCRIPT" "${SCRIPT_PATH}"; then
+        colorize red "Failed to copy script to ${SCRIPT_PATH}."
+        rm -f "$TEMP_SCRIPT"
+        exit 1
+    fi
+    chmod +x "${SCRIPT_PATH}"
+    rm -f "$TEMP_SCRIPT"
+    # Verify the copied script
+    if ! grep -q "function display_menu" "${SCRIPT_PATH}"; then
+        colorize red "Copied script at ${SCRIPT_PATH} is incomplete."
+        rm -f "${SCRIPT_PATH}"
+        exit 1
+    fi
+    colorize green "Script is now executable as 'RGT' command." bold
+fi
+while true; do
+    display_menu
+    read -p "Enter a choice: " choice
+    case $choice in
+        1)
+            clear
+            colorize cyan "Select tunnel type:" bold
+            echo "1) Direct"
+            echo "2) Reverse"
+            read -p "Enter choice: " tunnel_type
+            case $tunnel_type in
+                1)
+                    direct_server_configuration
+                    ;;
+                2)
+                    clear
+                    colorize cyan "Select server location:" bold
+                    echo "1) Iran Server"
+                    echo "2) Kharej Server"
+                    read -p "Enter choice: " server_type
+                    case $server_type in
+                        1) iran_server_configuration ;;
+                        2) kharej_server_configuration ;;
+                        *) colorize red "Invalid option!" && sleep 1 ;;
+                    esac
+                    ;;
+                *) colorize red "Invalid option!" && sleep 1 ;;
+            esac
+            ;;
+        2) manage_tunnel ;;
+        3) download_and_extract_rgt ;;
+        4) remove_core ;;
+        5) update_script ;;
+        6) rgt_tools ;;
+        7) exit 0 ;;
+        *) colorize red "Invalid option!" && sleep 1 ;;
+    esac
+done
