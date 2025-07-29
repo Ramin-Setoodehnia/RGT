@@ -160,46 +160,45 @@ download_and_extract_rgt() {
     if [[ -f "${RGT_BIN}" ]] && [[ -x "${RGT_BIN}" ]]; then
         colorize green "RGT is already installed and executable." bold
         sleep 1
-    else
-        DOWNLOAD_URL="https://github.com/black-sec/RGT/raw/main/core/RGT-x86-64-linux.zip"
-        DOWNLOAD_DIR=$(mktemp -d)
-        ZIP_FILE="$DOWNLOAD_DIR/rgt.zip"
-        colorize yellow "Downloading RGT core..."
-        if ! curl -sSL -o "$ZIP_FILE" "$DOWNLOAD_URL"; then
-            rm -rf "$DOWNLOAD_DIR"
-            colorize red "Failed to download RGT core."
-            manual_download_instructions
-        fi
-        if ! validate_zip_file "$ZIP_FILE"; then
-            rm -rf "$DOWNLOAD_DIR"
-            manual_download_instructions
-        fi
-        colorize yellow "Extracting RGT..."
-        mkdir -p "$CONFIG_DIR"
-        if ! unzip -q "$ZIP_FILE" -d "$CONFIG_DIR"; then
-            colorize red "Failed to extract RGT"
-            rm -rf "$DOWNLOAD_DIR"
-            manual_download_instructions
-        fi
-        if [[ ! -f "${CONFIG_DIR}/rgt" ]]; then
-            colorize red "RGT binary not found in zip file"
-            rm -rf "$DOWNLOAD_DIR"
-            manual_download_instructions
-        fi
-        mv "${CONFIG_DIR}/rgt" "${RGT_BIN}"
-        chmod +x "${RGT_BIN}"
-        rm -rf "$DOWNLOAD_DIR"
-        if [[ ! -x "${RGT_BIN}" ]]; then
-            colorize red "RGT binary is not executable"
-            manual_download_instructions
-        fi
-        colorize green "RGT installed successfully." bold
+        return 0
     fi
+    DOWNLOAD_URL="https://github.com/black-sec/RGT/raw/main/core/RGT-x86-64-linux.zip"
+    DOWNLOAD_DIR=$(mktemp -d)
+    ZIP_FILE="$DOWNLOAD_DIR/rgt.zip"
+    colorize yellow "Downloading RGT core..."
+    if ! curl -sSL -o "$ZIP_FILE" "$DOWNLOAD_URL"; then
+        rm -rf "$DOWNLOAD_DIR"
+        colorize red "Failed to download RGT core."
+        manual_download_instructions
+    fi
+    if ! validate_zip_file "$ZIP_FILE"; then
+        rm -rf "$DOWNLOAD_DIR"
+        manual_download_instructions
+    fi
+    colorize yellow "Extracting RGT..."
+    mkdir -p "$CONFIG_DIR"
+    if ! unzip -q "$ZIP_FILE" -d "$CONFIG_DIR"; then
+        colorize red "Failed to extract RGT"
+        rm -rf "$DOWNLOAD_DIR"
+        manual_download_instructions
+    fi
+    if [[ ! -f "${CONFIG_DIR}/rgt" ]]; then
+        colorize red "RGT binary not found in zip file"
+        rm -rf "$DOWNLOAD_DIR"
+        manual_download_instructions
+    fi
+    mv "${CONFIG_DIR}/rgt" "${RGT_BIN}"
+    chmod +x "${RGT_BIN}"
+    rm -rf "$DOWNLOAD_DIR"
+    if [[ ! -x "${RGT_BIN}" ]]; then
+        colorize red "RGT binary is not executable"
+        manual_download_instructions
+    fi
+    colorize green "RGT installed successfully." bold
 
-    # Install the full script to SCRIPT_PATH
-    colorize yellow "Installing RGT script to ${SCRIPT_PATH}..."
+    # Save the script to a temporary file to avoid stdin issues
     TEMP_SCRIPT="/tmp/rgt_manager.sh"
-    # Download the full script from the repository to ensure completeness
+    colorize yellow "Downloading script for installation..."
     if ! curl -sSL -o "$TEMP_SCRIPT" "https://raw.githubusercontent.com/black-sec/RGT/main/rgt_manager.sh"; then
         colorize red "Failed to download script for installation."
         rm -f "$TEMP_SCRIPT"
@@ -207,8 +206,8 @@ download_and_extract_rgt() {
         return 1
     fi
     # Verify the downloaded script is complete
-    if ! grep -q "function display_menu" "$TEMP_SCRIPT" || ! grep -q "function colorize" "$TEMP_SCRIPT"; then
-        colorize red "Downloaded script is incomplete (missing key functions)."
+    if ! grep -q "function display_menu" "$TEMP_SCRIPT"; then
+        colorize red "Downloaded script is incomplete (missing display_menu)."
         rm -f "$TEMP_SCRIPT"
         press_key
         return 1
@@ -224,6 +223,8 @@ download_and_extract_rgt() {
     rm -f "$TEMP_SCRIPT"
     colorize green "Script is now executable as 'RGT' command." bold
 }
+
+# Function to update script
 update_script() {
     clear
     colorize cyan "Updating RGT Manager Script" bold
@@ -236,20 +237,14 @@ update_script() {
         press_key
         return 1
     fi
-    if ! grep -q "function display_menu" "$TEMP_SCRIPT" || ! grep -q "function colorize" "$TEMP_SCRIPT"; then
+    if ! grep -q "RGT Tunnel" "$TEMP_SCRIPT"; then
         colorize red "Downloaded file does not appear to be a valid RGT script."
         rm -f "$TEMP_SCRIPT"
         press_key
         return 1
     fi
-    if ! cp "$TEMP_SCRIPT" "${SCRIPT_PATH}"; then
-        colorize red "Failed to copy updated script to ${SCRIPT_PATH}."
-        rm -f "$TEMP_SCRIPT"
-        press_key
-        return 1
-    fi
+    mv "$TEMP_SCRIPT" "${SCRIPT_PATH}"
     chmod +x "${SCRIPT_PATH}"
-    rm -f "$TEMP_SCRIPT"
     colorize green "RGT Manager Script updated successfully."
     colorize yellow "Please re-run the script with 'RGT' command to use the updated version."
     press_key
@@ -1987,9 +1982,42 @@ display_menu() {
 # Main loop
 install_dependencies
 mkdir -p "$CONFIG_DIR"
+# Install script if not already installed
 if [[ ! -f "${SCRIPT_PATH}" ]]; then
-    cp "$0" "${SCRIPT_PATH}"
+    TEMP_SCRIPT="/tmp/rgt_manager.sh"
+    colorize yellow "Installing RGT script to ${SCRIPT_PATH}..."
+    # Download the full script from the repository
+    if ! curl -sSL -o "$TEMP_SCRIPT" "https://raw.githubusercontent.com/black-sec/RGT/main/rgt_manager.sh"; then
+        colorize red "Failed to download script for installation."
+        rm -f "$TEMP_SCRIPT"
+        exit 1
+    fi
+    # Verify the downloaded script is complete
+    if ! grep -q "function display_menu" "$TEMP_SCRIPT" || ! grep -q "function colorize" "$TEMP_SCRIPT"; then
+        colorize red "Downloaded script is incomplete (missing key functions)."
+        rm -f "$TEMP_SCRIPT"
+        exit 1
+    fi
+    # Check file size to ensure it's not truncated
+    if [[ $(stat -c %s "$TEMP_SCRIPT") -lt 1000 ]]; then
+        colorize red "Downloaded script is too small and likely incomplete."
+        rm -f "$TEMP_SCRIPT"
+        exit 1
+    fi
+    # Copy the script to SCRIPT_PATH
+    if ! cp "$TEMP_SCRIPT" "${SCRIPT_PATH}"; then
+        colorize red "Failed to copy script to ${SCRIPT_PATH}."
+        rm -f "$TEMP_SCRIPT"
+        exit 1
+    fi
     chmod +x "${SCRIPT_PATH}"
+    rm -f "$TEMP_SCRIPT"
+    # Verify the copied script
+    if ! grep -q "function display_menu" "${SCRIPT_PATH}"; then
+        colorize red "Copied script at ${SCRIPT_PATH} is incomplete."
+        rm -f "${SCRIPT_PATH}"
+        exit 1
+    fi
     colorize green "Script is now executable as 'RGT' command." bold
 fi
 while true; do
