@@ -266,19 +266,11 @@ check_port() {
 
 # Function to validate IPv6 address
 check_ipv6() {
-    local ip="$1"
-    # Remove brackets if present
+    local ip=$1
     ip="${ip#[}"
     ip="${ip%]}"
-    
-    # Comprehensive IPv6 regex pattern
-    local ipv6_regex='^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$|^([0-9a-fA-F]{1,4}:){1,7}:$|^([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}$|^([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}$|^([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}$|^([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}$|^([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}$|^[0-9a-fA-F]{1,4}:(:[0-9a-fA-F]{1,4}){1,6}$|^::([0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4}$|^::[0-9a-fA-F]{1,4}$|^::$'
-    
-    if [[ "$ip" =~ $ipv6_regex ]]; then
-        return 0  # Valid IPv6
-    else
-        return 1  # Invalid IPv6
-    fi
+    ipv6_pattern="^([0-9a-fA-F]{1,4}:){7}([0-9a-fA-F]{1,4}|:)$|^(([0-9a-fA-F]{1,4}:){1,7}|:):((:[0-9a-fA-F]{1,4}){1,7}|:)$"
+    [[ $ip =~ $ipv6_pattern ]] && return 0 || return 1
 }
 
 # Function to validate IPv4 address
@@ -895,10 +887,10 @@ EOF
 # Function to configure Iran server
 iran_server_configuration() {
     clear
-    colorize cyan "Configuring Iran Server for Reverse Tunnel" bold
+    colorize cyan "Configuring Iran Server" bold
     echo
 
-    read -p "[*] Enter tunnel name (e.g., ir1): " tunnel_name
+    read -p "[*] Enter tunnel name (e.g., main-tunnel): " tunnel_name
     tunnel_name=$(echo "$tunnel_name" | tr ' ' '-' | tr -d '[:space:]')
     if [[ -z "$tunnel_name" ]]; then
         colorize red "Tunnel name cannot be empty."
@@ -911,33 +903,19 @@ iran_server_configuration() {
         return 1
     fi
 
-    read -p "[*] Enter Kharej server IP (e.g., 192.168.0.3): " kharej_ip
-    if [[ -z "$kharej_ip" ]]; then
-        colorize red "Kharej server IP cannot be empty."
-        press_key
-        return 1
-    fi
-    if check_ipv6 "$kharej_ip"; then
-        kharej_ip="${kharej_ip#[}"
-        kharej_ip="${kharej_ip%]}"
-    elif ! check_ipv4 "$kharej_ip"; then
-        colorize red "Invalid IP address format."
-        press_key
-        return 1
-    fi
-
-    echo "Iran server address type:"
+    local_ip="0.0.0.0"
+    echo "Iran server address:"
     echo "1) IPv4"
     echo "2) IPv6"
     read -p "Enter choice: " ip_choice
     case $ip_choice in
-        1) local_ip="0.0.0.0" ; colorize yellow "IPv4 enabled" ;;
-        2) local_ip="[::]" ; colorize yellow "IPv6 enabled" ;;
+        1) colorize yellow "IPv4 enabled" ;;
+        2) colorize yellow "IPv6 enabled"; local_ip="[::]" ;;
         *) colorize red "Invalid option! Defaulting to IPv4"; local_ip="0.0.0.0" ;;
     esac
 
     while true; do
-        read -p "[*] Enter tunnel port (e.g., 3030): " tunnel_port
+        read -p "[*] Enter tunnel port (e.g., 443): " tunnel_port
         if [[ "$tunnel_port" =~ ^[0-9]+$ ]] && [ "$tunnel_port" -gt 22 ] && [ "$tunnel_port" -le 65535 ]; then
             if check_port "$tunnel_port" "tcp"; then
                 colorize red "Port $tunnel_port is in use."
@@ -969,10 +947,13 @@ iran_server_configuration() {
         [[ "$nodelay" != "true" && "$nodelay" != "false" ]] && colorize red "Enter true or false"
     done
 
+    local heartbeat="0"
+    colorize yellow "Heartbeat disabled for high connection stability."
+
     read -p "[-] Security token (press enter for default 'RGT'): " token
     [[ -z "$token" ]] && token="RGT"
 
-    read -p "[*] Enter service ports (e.g., 5050,8080): " input_ports
+    read -p "[*] Enter service ports (e.g., 8008,8080): " input_ports
     input_ports=$(echo "$input_ports" | tr -d ' ')
     IFS=',' read -r -a ports <<< "$input_ports"
     declare -a config_ports
@@ -995,7 +976,7 @@ iran_server_configuration() {
 [server]
 bind_addr = "${local_ip}:${tunnel_port}"
 default_token = "$token"
-heartbeat_interval = 0
+heartbeat_interval = $heartbeat
 
 [server.transport]
 type = "$transport"
@@ -1036,123 +1017,97 @@ EOF
     systemctl daemon-reload
     systemctl enable --now "RGT-iran-${tunnel_name}.service" || { colorize red "Failed to enable service"; return 1; }
     colorize green "Iran server configuration for tunnel '$tunnel_name' completed."
-    colorize green "Connected to Kharej server IP: $kharej_ip"
-    colorize green "Service ports: ${input_ports}"
     press_key
     return 0
 }
+
 # Function to configure Kharej server
 kharej_server_configuration() {
     clear
-    colorize cyan "Configuring Kharej Server for Multiple Reverse Tunnels" bold
+    colorize cyan "Configuring Kharej Server" bold
     echo
 
-    read -p "[*] Enter the number of Iran servers: " iran_count
-    if ! [[ "$iran_count" =~ ^[0-9]+$ ]] || [ "$iran_count" -lt 1 ]; then
-        colorize red "Invalid number of Iran servers. Please enter a positive integer."
+    read -p "[*] Enter tunnel name (e.g., main-tunnel): " tunnel_name
+    tunnel_name=$(echo "$tunnel_name" | tr ' ' '-' | tr -d '[:space:]')
+    if [[ -z "$tunnel_name" ]]; then
+        colorize red "Tunnel name cannot be empty."
+        press_key
+        return 1
+    fi
+    if [[ -f "${CONFIG_DIR}/kharej-${tunnel_name}.toml" ]]; then
+        colorize red "Tunnel with name '$tunnel_name' already exists."
         press_key
         return 1
     fi
 
-    TUNNELS_CONF="${CONFIG_DIR}/tunnels.conf"
-    mkdir -p "$CONFIG_DIR"
-    > "$TUNNELS_CONF"
+    read -p "[*] Enter Iran server IP (IPv4 or [IPv6]): " server_addr
+    [[ -z "$server_addr" ]] && { colorize red "Server address cannot be empty."; press_key; return 1; }
+    if check_ipv6 "$server_addr"; then
+        server_addr="${server_addr#[}"
+        server_addr="${server_addr%]}"
+    elif ! check_ipv4 "$server_addr"; then
+        colorize red "Invalid IP address format."
+        press_key
+        return 1
+    fi
 
-    for ((i=1; i<=iran_count; i++)); do
-        colorize yellow "Configuring tunnel $i for Iran server" bold
-        echo
-
-        read -p "[*] Enter tunnel name (e.g., kh$i): " tunnel_name
-        tunnel_name=$(echo "${tunnel_name:-kh$i}" | tr ' ' '-' | tr -d '[:space:]')
-        if [[ -z "$tunnel_name" ]]; then
-            colorize red "Tunnel name cannot be empty."
-            press_key
-            return 1
+    while true; do
+        read -p "[*] Enter tunnel port (e.g., 443): " tunnel_port
+        if [[ "$tunnel_port" =~ ^[0-9]+$ ]] && [ "$tunnel_port" -gt 22 ] && [ "$tunnel_port" -le 65535 ]; then
+            break
+        else
+            colorize red "Enter a valid port (23-65535)"
         fi
-        if [[ -f "${CONFIG_DIR}/kharej-${tunnel_name}.toml" ]]; then
-            colorize red "Tunnel with name '$tunnel_name' already exists."
-            press_key
-            return 1
-        fi
+    done
 
-        read -p "[*] Enter Iran server IP (e.g., 192.168.0.$i): " server_addr
-        if [[ -z "$server_addr" ]]; then
-            colorize red "Iran server IP cannot be empty."
-            press_key
-            return 1
-        fi
-        if check_ipv6 "$server_addr"; then
-            server_addr="${server_addr#[}"
-            server_addr="${server_addr%]}"
-        elif ! check_ipv4 "$server_addr"; then
-            colorize red "Invalid IP address format."
-            press_key
-            return 1
-        fi
+    local transport=""
+    echo "Transport type:"
+    echo "1) TCP"
+    echo "2) UDP"
+    read -p "Enter choice: " transport_choice
+    case $transport_choice in
+        1) transport="tcp" ;;
+        2) transport="udp" ;;
+        *) colorize red "Invalid option! Defaulting to TCP"; transport="tcp" ;;
+    esac
 
-        while true; do
-            read -p "[*] Enter tunnel port (e.g., $((3030 + i - 1))): " tunnel_port
-            tunnel_port=${tunnel_port:-$((3030 + i - 1))}
-            if [[ "$tunnel_port" =~ ^[0-9]+$ ]] && [ "$tunnel_port" -gt 22 ] && [ "$tunnel_port" -le 65535 ]; then
-                if check_port "$tunnel_port" "tcp"; then
-                    colorize red "Port $tunnel_port is in use."
-                else
-                    break
-                fi
-            else
-                colorize red "Enter a valid port (23-65535)"
-            fi
-        done
-
-        local transport=""
-        echo "Transport type:"
-        echo "1) TCP"
-        echo "2) UDP"
-        read -p "Enter choice: " transport_choice
-        case $transport_choice in
-            1) transport="tcp" ;;
-            2) transport="udp" ;;
-            *) colorize red "Invalid option! Defaulting to TCP"; transport="tcp" ;;
-        esac
-
-        local nodelay=""
-        read -p "[*] Enable TCP_NODELAY (true/false, press enter for true): " nodelay
+    local nodelay=""
+    read -p "[*] Enable TCP_NODELAY (true/false, press enter for true): " nodelay
+    [[ -z "$nodelay" ]] && nodelay="true"
+    while [[ "$nodelay" != "true" && "$nodelay" != "false" ]]; do
+        read -p "[*] Enable TCP_NODELAY (true/false): " nodelay
         [[ -z "$nodelay" ]] && nodelay="true"
-        while [[ "$nodelay" != "true" && "$nodelay" != "false" ]]; do
-            read -p "[*] Enable TCP_NODELAY (true/false): " nodelay
-            [[ -z "$nodelay" ]] && nodelay="true"
-            [[ "$nodelay" != "true" && "$nodelay" != "false" ]] && colorize red "Enter true or false"
-        done
+        [[ "$nodelay" != "true" && "$nodelay" != "false" ]] && colorize red "Enter true or false"
+    done
 
-        read -p "[-] Security token (press enter for default 'RGT'): " token
-        [[ -z "$token" ]] && token="RGT"
+    local heartbeat="0"
+    colorize yellow "Heartbeat disabled for high connection stability."
 
-        read -p "[*] Enter service ports (e.g., 5050,8080): " input_ports
-        input_ports=$(echo "$input_ports" | tr -d ' ')
-        IFS=',' read -r -a ports <<< "$input_ports"
-        declare -a config_ports
-        for port in "${ports[@]}"; do
-            if [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -gt 22 ] && [ "$port" -le 65535 ]; then
-                if check_port "$port" "$transport"; then
-                    colorize red "Port $port is in use."
-                else
-                    config_ports+=("$port")
-                    colorize green "Port $port added."
-                fi
-            else
-                colorize red "Port $port is invalid. Must be between 23-65535."
-            fi
-        done
-        [[ ${#config_ports[@]} -eq 0 ]] && { colorize red "No valid ports entered. Exiting..."; sleep 2; return 1; }
+    read -p "[-] Security token (press enter for default 'RGT'): " token
+    [[ -z "$token" ]] && token="RGT"
 
-        local_ip="127.0.0.1"
+    read -p "[*] Enter service ports (e.g., 8008,8080): " input_ports
+    input_ports=$(echo "$input_ports" | tr -d ' ')
+    IFS=',' read -r -a ports <<< "$input_ports"
+    declare -a config_ports
+    for port in "${ports[@]}"; do
+        if [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -gt 22 ] && [ "$port" -le 65535 ]; then
+            config_ports+=("$port")
+            colorize green "Port $port added."
+        else
+            colorize red "Port $port is invalid. Must be between 23-65535."
+        fi
+    done
+    [[ ${#config_ports[@]} -eq 0 ]] && { colorize red "No valid ports entered. Exiting..."; sleep 2; return 1; }
 
-        config_file="${CONFIG_DIR}/kharej-${tunnel_name}.toml"
-        cat << EOF > "$config_file"
+    local_ip="127.0.0.1"
+
+    config_file="${CONFIG_DIR}/kharej-${tunnel_name}.toml"
+    cat << EOF > "$config_file"
 [client]
 remote_addr = "${server_addr}:${tunnel_port}"
 default_token = "$token"
-heartbeat_timeout = 0
+heartbeat_timeout = $heartbeat
 
 [client.transport]
 type = "$transport"
@@ -1164,8 +1119,8 @@ keepalive_interval = 8
 
 EOF
 
-        for port in "${config_ports[@]}"; do
-            cat << EOF >> "$config_file"
+    for port in "${config_ports[@]}"; do
+        cat << EOF >> "$config_file"
 [client.services.service${port}]
 type = "$transport"
 token = "$token"
@@ -1173,21 +1128,10 @@ local_addr = "${local_ip}:${port}"
 nodelay = $nodelay
 
 EOF
-        done
+    done
 
-        echo "Tunnel $i:" >> "$TUNNELS_CONF"
-        echo "  Name: $tunnel_name" >> "$TUNNELS_CONF"
-        echo "  Iran_IP: $server_addr" >> "$TUNNELS_CONF"
-        echo "  IP_Type: $ip_type" >> "$TUNNELS_CONF"
-        echo "  Tunnel_Port: $tunnel_port" >> "$TUNNELS_CONF"
-        echo "  Protocol: $transport" >> "$TUNNELS_CONF"
-        echo "  TCP_NODELAY: $nodelay" >> "$TUNNELS_CONF"
-        echo "  Security_Token: $token" >> "$TUNNELS_CONF"
-        echo "  Config_Ports: $input_ports" >> "$TUNNELS_CONF"
-        echo "" >> "$TUNNELS_CONF"
-
-        service_file="${SERVICE_DIR}/RGT-kharej-${tunnel_name}.service"
-        cat << EOF > "$service_file"
+    service_file="${SERVICE_DIR}/RGT-kharej-${tunnel_name}.service"
+    cat << EOF > "$service_file"
 [Unit]
 Description=RGT Kharej Tunnel $tunnel_name
 After=network.target
@@ -1201,14 +1145,9 @@ LimitNOFILE=1048576
 WantedBy=multi-user.target
 EOF
 
-        systemctl daemon-reload
-        systemctl enable --now "RGT-kharej-${tunnel_name}.service" || { colorize red "Failed to enable service for tunnel $tunnel_name"; return 1; }
-        colorize green "Kharej server configuration for tunnel '$tunnel_name' completed."
-        colorize green "Connected to Iran server IP: $server_addr"
-        colorize green "Service ports: $input_ports"
-    done
-
-    colorize green "All tunnels configured and started. Configuration saved in $TUNNELS_CONF" bold
+    systemctl daemon-reload
+    systemctl enable --now "RGT-kharej-${tunnel_name}.service" || { colorize red "Failed to enable service"; return 1; }
+    colorize green "Kharej server configuration for tunnel '$tunnel_name' completed."
     press_key
     return 0
 }
@@ -2027,7 +1966,7 @@ display_server_info() {
 display_menu() {
     clear
     display_logo
-    echo -e "${CYAN}Version: ${YELLOW}1.1${NC}"
+    echo -e "${CYAN}Version: ${YELLOW}1.0${NC}"
     display_server_info
     colorize green "1) Setup new tunnel" bold
     colorize green "2) Manage tunnels" bold
@@ -2043,42 +1982,9 @@ display_menu() {
 # Main loop
 install_dependencies
 mkdir -p "$CONFIG_DIR"
-# Install script if not already installed
 if [[ ! -f "${SCRIPT_PATH}" ]]; then
-    TEMP_SCRIPT="/tmp/rgt_manager.sh"
-    colorize yellow "Installing RGT script to ${SCRIPT_PATH}..."
-    # Download the full script from the repository
-    if ! curl -sSL -o "$TEMP_SCRIPT" "https://raw.githubusercontent.com/black-sec/RGT/main/rgt_manager.sh"; then
-        colorize red "Failed to download script for installation."
-        rm -f "$TEMP_SCRIPT"
-        exit 1
-    fi
-    # Verify the downloaded script is complete
-    if ! grep -q "function display_menu" "$TEMP_SCRIPT" || ! grep -q "function colorize" "$TEMP_SCRIPT"; then
-        colorize red "Downloaded script is incomplete (missing key functions)."
-        rm -f "$TEMP_SCRIPT"
-        exit 1
-    fi
-    # Check file size to ensure it's not truncated
-    if [[ $(stat -c %s "$TEMP_SCRIPT") -lt 1000 ]]; then
-        colorize red "Downloaded script is too small and likely incomplete."
-        rm -f "$TEMP_SCRIPT"
-        exit 1
-    fi
-    # Copy the script to SCRIPT_PATH
-    if ! cp "$TEMP_SCRIPT" "${SCRIPT_PATH}"; then
-        colorize red "Failed to copy script to ${SCRIPT_PATH}."
-        rm -f "$TEMP_SCRIPT"
-        exit 1
-    fi
+    cp "$0" "${SCRIPT_PATH}"
     chmod +x "${SCRIPT_PATH}"
-    rm -f "$TEMP_SCRIPT"
-    # Verify the copied script
-    if ! grep -q "function display_menu" "${SCRIPT_PATH}"; then
-        colorize red "Copied script at ${SCRIPT_PATH} is incomplete."
-        rm -f "${SCRIPT_PATH}"
-        exit 1
-    fi
     colorize green "Script is now executable as 'RGT' command." bold
 fi
 while true; do
