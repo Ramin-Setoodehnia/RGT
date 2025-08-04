@@ -2,6 +2,7 @@
 
 DATA_DIR="/root/bandwidth"
 PORTS_FILE="$DATA_DIR/ports.txt"
+CONFIG_DIR="/root/rgt-core"
 
 # Ensure data directory and ports file exist
 mkdir -p "$DATA_DIR"
