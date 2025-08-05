@@ -716,13 +716,11 @@ EOF
         return 1
     }
 
-    # Start bandwidth monitoring for direct tunnel ports (Iran server only)
-    if [[ -f "${CONFIG_DIR}/tools/rgt-port-monitor.sh" ]]; then
-        for port in "${tunnel_port[@]}"; do
-            ${CONFIG_DIR}/tools/rgt-port-monitor.sh addport "$port" "udp"
-        done
-        ${CONFIG_DIR}/tools/rgt-port-monitor.sh install
-    fi
+	# Start bandwidth monitoring for direct tunnel port (Iran server only)
+	if [[ -f "${CONFIG_DIR}/tools/rgt-port-monitor.sh" ]]; then
+		${CONFIG_DIR}/tools/rgt-port-monitor.sh addport "$tunnel_port" "udp"
+		${CONFIG_DIR}/tools/rgt-port-monitor.sh install
+	fi
 
     colorize green "Direct tunnel configuration for Iran server '$tunnel_name' completed."
     colorize green "Iran bridge IP: ${iran_bridge_ip}"
@@ -1035,13 +1033,11 @@ EOF
     systemctl daemon-reload
     systemctl enable --now "RGT-iran-${tunnel_name}.service" || { colorize red "Failed to enable service"; return 1; }
 
-    # Start bandwidth monitoring for reverse tunnel ports (Iran server only)
-    if [[ -f "${CONFIG_DIR}/tools/rgt-port-monitor.sh" ]]; then
-        for port in "${tunnel_port[@]}"; do
-            ${CONFIG_DIR}/tools/rgt-port-monitor.sh addport "$port" "$transport"
-        done
-        ${CONFIG_DIR}/tools/rgt-port-monitor.sh install
-    fi
+	# Start bandwidth monitoring for reverse tunnel port (Iran server only)
+	if [[ -f "${CONFIG_DIR}/tools/rgt-port-monitor.sh" ]]; then
+		${CONFIG_DIR}/tools/rgt-port-monitor.sh addport "$tunnel_port" "$transport"
+		${CONFIG_DIR}/tools/rgt-port-monitor.sh install
+	fi
 
     colorize green "Iran server configuration for tunnel '$tunnel_name' completed."
     press_key
@@ -1905,17 +1901,31 @@ destroy_tunnel() {
         fi
     fi
 
-    # Remove bandwidth monitoring data for tunnel port only (Iran server only)
-    if [[ "$tunnel_type" == "direct-iran" || "$tunnel_type" == "iran" ]]; then
-        if [[ -f "${CONFIG_DIR}/tools/rgt-port-monitor.sh" ]]; then
-            proto=$(grep "type = " "$config_path" | head -n 1 | cut -d'"' -f2)
-            [[ -z "$proto" ]] && proto="tcp"  # Default to tcp if not found
-            ${CONFIG_DIR}/tools/rgt-port-monitor.sh removeport "$tunnel_port" "$proto"
-        fi
-        # Remove iptables rules for the tunnel port only
-        iptables -D INPUT -p "$proto" --dport "$tunnel_port" -j ACCEPT 2>/dev/null
-        iptables -D OUTPUT -p "$proto" --sport "$tunnel_port" -j ACCEPT 2>/dev/null
-    fi
+	# Remove bandwidth monitoring data and iptables rules for tunnel port only (Iran server only)
+	if [[ "$tunnel_type" == "direct-iran" || "$tunnel_type" == "iran" ]]; then
+		if [[ -f "${CONFIG_DIR}/tools/rgt-port-monitor.sh" ]]; then
+			if [[ "$tunnel_type" == "direct-iran" ]]; then
+				proto="udp"  # Direct tunnels use UDP
+			else
+				proto=$(grep "type = " "$config_path" | head -n 1 | cut -d'"' -f2)
+				[[ -z "$proto" ]] && proto="tcp"  # Default to tcp for reverse tunnels if not found
+			fi
+			tunnel_port=$(grep "^dstport=" "$config_path" 2>/dev/null | cut -d'=' -f2 | tr -d ' ')
+			[[ -z "$tunnel_port" && "$tunnel_type" == "iran" ]] && tunnel_port=$(grep "bind_addr" "$config_path" | head -n 1 | cut -d':' -f2 | cut -d'"' -f1)
+			if [[ -n "$tunnel_port" ]]; then
+				${CONFIG_DIR}/tools/rgt-port-monitor.sh removeport "$tunnel_port" "$proto"
+				# Remove iptables rules for the tunnel port
+				iptables -D INPUT -p "$proto" --dport "$tunnel_port" -j ACCEPT 2>/dev/null
+				iptables -D OUTPUT -p "$proto" --sport "$tunnel_port" -j ACCEPT 2>/dev/null
+				ip6tables -D INPUT -p "$proto" --dport "$tunnel_port" -j ACCEPT 2>/dev/null
+				ip6tables -D OUTPUT -p "$proto" --sport "$tunnel_port" -j ACCEPT 2>/dev/null
+			else
+				colorize yellow "Warning: Could not determine tunnel port for $tunnel_type tunnel."
+			fi
+		else
+			colorize yellow "Warning: rgt-port-monitor.sh not found, skipping port monitoring cleanup."
+		fi
+	fi
 
     # Reload systemd to reflect changes
     systemctl daemon-reload || { colorize yellow "Failed to reload systemd."; press_key; return 1; }
