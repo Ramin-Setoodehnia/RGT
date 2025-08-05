@@ -224,7 +224,6 @@ update_script() {
     colorize yellow "Downloading updated script..."
     if ! curl -sSL -o "$TEMP_SCRIPT" "$UPDATE_URL"; then
         colorize red "Failed to download updated script. Please check network or URL."
-        rm -f "$TEMP_SCRIPT"
         press_key
         return 1
     fi
@@ -234,12 +233,7 @@ update_script() {
         press_key
         return 1
     fi
-    mv "$TEMP_SCRIPT" "${SCRIPT_PATH}" || {
-        colorize red "Failed to move updated script to ${SCRIPT_PATH}."
-        rm -f "$TEMP_SCRIPT"
-        press_key
-        return 1
-    }
+    mv "$TEMP_SCRIPT" "${SCRIPT_PATH}"
     chmod +x "${SCRIPT_PATH}"
     colorize green "RGT Manager Script updated successfully."
     colorize yellow "Please re-run the script with 'RGT' command to use the updated version."
@@ -248,33 +242,17 @@ update_script() {
     MONITOR_SCRIPT_URL="https://raw.githubusercontent.com/black-sec/RGT/main/tools/rgt-port-monitor.sh"
     MONITOR_SCRIPT_PATH="${CONFIG_DIR}/tools/rgt-port-monitor.sh"
     colorize yellow "Downloading updated rgt-port-monitor.sh..."
-    # Ensure the tools directory exists
-    mkdir -p "${CONFIG_DIR}/tools" || {
-        colorize red "Failed to create directory ${CONFIG_DIR}/tools."
-        press_key
-        return 1
-    }
-    # Use a temporary file for downloading
-    temp_monitor_file=$(mktemp)
-    if ! curl -sSL -o "$temp_monitor_file" "$MONITOR_SCRIPT_URL"; then
+    if ! curl -sSL -o "$MONITOR_SCRIPT_PATH" "$MONITOR_SCRIPT_URL"; then
         colorize red "Failed to download updated rgt-port-monitor.sh."
-        rm -f "$temp_monitor_file"
         press_key
         return 1
     fi
-    if ! grep -q "rgt-port-monitor.sh" "$temp_monitor_file"; then
+    if ! grep -q "rgt-port-monitor.sh" "$MONITOR_SCRIPT_PATH"; then
         colorize red "Downloaded rgt-port-monitor.sh is invalid."
-        rm -f "$temp_monitor_file"
+        rm -f "$MONITOR_SCRIPT_PATH"
         press_key
         return 1
     fi
-    # Move the downloaded file to destination
-    if ! mv "$temp_monitor_file" "$MONITOR_SCRIPT_PATH"; then
-        colorize red "Failed to move downloaded file to ${MONITOR_SCRIPT_PATH}."
-        rm -f "$temp_monitor_file"
-        press_key
-        return 1
-    }
     chmod +x "$MONITOR_SCRIPT_PATH"
     colorize green "rgt-port-monitor.sh updated successfully."
 
