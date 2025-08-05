@@ -57,26 +57,31 @@ add_port() {
     echo "✅ Port $port ($proto) added."
 }
 
-# Function to show bandwidth usage
-show_usage() {
-    echo "🕒 $(date)"
-    if [[ ! -s "$PORTS_FILE" ]]; then
-        echo "No ports are being monitored."
-        exit 0
+# Function to show bandwidth usage for a specific port
+show_port() {
+    check_root
+    local port=$1
+    local proto=$2
+    if [[ ! "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 23 ] || [ "$port" -gt 65535 ]; then
+        echo "Invalid port number. Must be between 23-65535."
+        exit 1
     fi
-    while read -r port proto; do
-        usage_file="$DATA_DIR/port_${port}_${proto}_usage.txt"
-        [ -f "$usage_file" ] || echo "0 0" > "$usage_file"
+    if [[ "$proto" != "tcp" && "$proto" != "udp" ]]; then
+        echo "Invalid protocol. Must be 'tcp' or 'udp'."
+        exit 1
+    fi
+    local usage_file="$DATA_DIR/port_${port}_${proto}_usage.txt"
+    if [[ -f "$usage_file" ]]; then
         read saved_rx saved_tx < "$usage_file"
-
         rx_bytes=$(iptables -L -v -n -x | grep "$proto.*dpt:$port" | awk '{sum+=$2} END {print sum+0}')
         tx_bytes=$(iptables -L -v -n -x | grep "$proto.*spt:$port" | awk '{sum+=$2} END {print sum+0}')
-
         total_rx=$((saved_rx + rx_bytes))
         total_tx=$((saved_tx + tx_bytes))
-
+        printf "🕒 %s\n" "$(date)"
         printf "Port %s (%s): RX %.2f MB | TX %.2f MB\n" "$port" "$proto" "$(echo "$total_rx / 1024 / 1024" | bc -l)" "$(echo "$total_tx / 1024 / 1024" | bc -l)"
-    done < "$PORTS_FILE"
+    else
+        echo "No bandwidth data found for port $port ($proto)."
+    fi
 }
 
 # Function to reset all usage data
@@ -185,7 +190,7 @@ EOF
 case "$1" in
     install) install ;;
     addport) add_port "$2" "$3" ;;
-    show) show_usage ;;
+    show_port) show_port "$2" "$3" ;;
     reset) reset_all_usage ;;
     resetport) reset_port_usage "$2" "$3" ;;
     removeport) remove_port "$2" "$3" ;;
@@ -195,7 +200,7 @@ case "$1" in
         echo "Usage:"
         echo "  rgt-port-monitor.sh install                     # Install and setup the monitor service"
         echo "  rgt-port-monitor.sh addport <port> <tcp|udp>   # Add a port to monitor"
-        echo "  rgt-port-monitor.sh show                        # Show usage stats"
+        echo "  rgt-port-monitor.sh show_port <port> <tcp|udp> # Show usage for specific port"
         echo "  rgt-port-monitor.sh reset                       # Reset all usage data"
         echo "  rgt-port-monitor.sh resetport <port> <tcp|udp>  # Reset specific port"
         echo "  rgt-port-monitor.sh removeport <port> <tcp|udp> # Remove specific port"
