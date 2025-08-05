@@ -21,13 +21,13 @@ RGT_BIN="${CONFIG_DIR}/rgt"
 SCRIPT_PATH="/usr/local/bin/RGT"
 
 # Function to press key to continue
-function press_key() {
+press_key() {
     echo
     read -rp "Press any key to continue..."
 }
 
 # Function to colorize text
-function colorize() {
+colorize() {
     local color="$1"
     local text="$2"
     local style="${3:-normal}"
@@ -65,7 +65,7 @@ function colorize() {
 }
 
 # Function to detect network interface
-function detect_network_interface() {
+detect_network_interface() {
     local interface=$(ip link | grep -E '^[0-9]+: (eth[0-9]+|ens[0-9]+)' | awk '{print $2}' | cut -d':' -f1 | head -n 1)
     if [[ -z "$interface" ]]; then
         colorize red "No network interface found."
@@ -76,7 +76,7 @@ function detect_network_interface() {
 }
 
 # Function to install dependencies
-function install_dependencies() {
+install_dependencies() {
     if ! command -v unzip &> /dev/null; then
         colorize yellow "Installing unzip..."
         apt-get update
@@ -110,7 +110,7 @@ function install_dependencies() {
 }
 
 # Function to display manual download instructions
-function manual_download_instructions() {
+manual_download_instructions() {
     colorize red "Failed to download RGT core from GitHub due to network restrictions."
     echo
     colorize yellow "Please follow these steps to manually download and install RGT core:"
@@ -138,7 +138,7 @@ function manual_download_instructions() {
 }
 
 # Function to validate downloaded zip file
-function validate_zip_file() {
+validate_zip_file() {
     local zip_file="$1"
     if [[ ! -f "$zip_file" ]]; then
         colorize red "Downloaded file does not exist."
@@ -156,7 +156,7 @@ function validate_zip_file() {
 }
 
 # Function to download and install rgt
-function download_and_extract_rgt() {
+download_and_extract_rgt() {
     if [[ -f "${RGT_BIN}" ]] && [[ -x "${RGT_BIN}" ]]; then
         colorize green "RGT is already installed and executable." bold
         sleep 1
@@ -168,6 +168,7 @@ function download_and_extract_rgt() {
     colorize yellow "Downloading RGT core..."
     if ! curl -sSL -o "$ZIP_FILE" "$DOWNLOAD_URL"; then
         rm -rf "$DOWNLOAD_DIR"
+        colorize red "Failed to download RGT core."
         manual_download_instructions
     fi
     if ! validate_zip_file "$ZIP_FILE"; then
@@ -194,13 +195,37 @@ function download_and_extract_rgt() {
         manual_download_instructions
     fi
     colorize green "RGT installed successfully." bold
-    cp "$0" "${SCRIPT_PATH}"
+
+    # Save the script to a temporary file to avoid stdin issues
+    TEMP_SCRIPT="/tmp/rgt_manager.sh"
+    colorize yellow "Downloading script for installation..."
+    if ! curl -sSL -o "$TEMP_SCRIPT" "https://raw.githubusercontent.com/black-sec/RGT/main/rgt_manager.sh"; then
+        colorize red "Failed to download script for installation."
+        rm -f "$TEMP_SCRIPT"
+        press_key
+        return 1
+    fi
+    # Verify the downloaded script is complete
+    if ! grep -q "function display_menu" "$TEMP_SCRIPT"; then
+        colorize red "Downloaded script is incomplete (missing display_menu)."
+        rm -f "$TEMP_SCRIPT"
+        press_key
+        return 1
+    fi
+    # Copy the script to SCRIPT_PATH
+    if ! cp "$TEMP_SCRIPT" "${SCRIPT_PATH}"; then
+        colorize red "Failed to copy script to ${SCRIPT_PATH}."
+        rm -f "$TEMP_SCRIPT"
+        press_key
+        return 1
+    fi
     chmod +x "${SCRIPT_PATH}"
+    rm -f "$TEMP_SCRIPT"
     colorize green "Script is now executable as 'RGT' command." bold
 }
 
 # Function to update script
-function update_script() {
+update_script() {
     clear
     colorize cyan "Updating RGT Manager Script" bold
     echo
@@ -227,7 +252,7 @@ function update_script() {
 }
 
 # Function to check if a port is in use
-function check_port() {
+check_port() {
     local port=$1
     local transport=$2
     if [[ "$transport" == "tcp" ]]; then
@@ -240,7 +265,7 @@ function check_port() {
 }
 
 # Function to validate IPv6 address
-function check_ipv6() {
+check_ipv6() {
     local ip=$1
     ip="${ip#[}"
     ip="${ip%]}"
@@ -249,7 +274,7 @@ function check_ipv6() {
 }
 
 # Function to validate IPv4 address
-function check_ipv4() {
+check_ipv4() {
     local ip=$1
     ipv4_pattern="^([0-9]{1,3}\.){3}[0-9]{1,3}$"
     if [[ $ip =~ $ipv4_pattern ]]; then
@@ -263,7 +288,7 @@ function check_ipv4() {
 }
 
 # Function to check for consecutive errors and restart
-function check_consecutive_errors() {
+check_consecutive_errors() {
     local service_name="$1"
     local tunnel_name=$(echo "$service_name" | sed 's/RGT-//;s/.service//')
     local logs=$(journalctl -u "$service_name" -n 50 --no-pager | tail -n 2)
@@ -280,7 +305,7 @@ function check_consecutive_errors() {
 }
 
 # Function to validate VXLAN setup
-function validate_vxlan_setup() {
+validate_vxlan_setup() {
     local local_ip=$1
     local remote_ip=$2
     local tunnel_port=$3
@@ -302,7 +327,7 @@ function validate_vxlan_setup() {
 }
 
 # Function to configure Direct tunnel
-function direct_server_configuration() {
+direct_server_configuration() {
     clear
     colorize cyan "Configuring Direct Tunnel" bold
     echo
@@ -316,12 +341,145 @@ function direct_server_configuration() {
         *) colorize red "Invalid option!" && press_key && return 1 ;;
     esac
 }
+# Function to update HAProxy configuration
+update_haproxy_config() {
+    local tunnel_name="$1"
+    shift
+    local ports=("$@")
+    local kharej_bridge_ip="${ports[-1]}"
+    unset 'ports[-1]'
+    local haproxy_config="${HAPROXY_CFG:-/etc/haproxy/haproxy.cfg}"
 
-# Define HAProxy config path
-HAPROXY_CFG="/etc/haproxy/haproxy.cfg"
+    # Check if haproxy_config is defined
+    if [[ -z "$haproxy_config" ]]; then
+        colorize red "HAProxy configuration path is not defined."
+        return 1
+    fi
 
+    # Ensure HAProxy directory exists
+    local haproxy_dir
+    haproxy_dir=$(dirname "$haproxy_config")
+    if [[ ! -d "$haproxy_dir" ]]; then
+        mkdir -p "$haproxy_dir" || {
+            colorize red "Failed to create HAProxy directory $haproxy_dir."
+            return 1
+        }
+        chown haproxy:haproxy "$haproxy_dir" 2>/dev/null || {
+            colorize yellow "Failed to set permissions for $haproxy_dir."
+        }
+    fi
+
+    # Check if HAProxy config file exists or create it with default settings
+    if [[ ! -f "$haproxy_config" ]]; then
+        colorize yellow "HAProxy config file $haproxy_config not found. Creating with default settings..."
+        cat << EOF > "$haproxy_config"
+global
+    maxconn 50000
+    user haproxy
+    group haproxy
+    daemon
+
+defaults
+    log global
+    mode tcp
+    option tcplog
+    timeout connect 5000ms
+    timeout client 50000ms
+    timeout server 50000ms
+    timeout check 5000ms
+EOF
+        if [[ ! -f "$haproxy_config" ]]; then
+            colorize red "Failed to create HAProxy config file $haproxy_config."
+            return 1
+        fi
+        chown haproxy:haproxy "$haproxy_config" 2>/dev/null || {
+            colorize yellow "Failed to set permissions for $haproxy_config."
+        }
+    fi
+
+    # Create backup of existing HAProxy config
+    if ! cp "$haproxy_config" "${haproxy_config}.bak" 2>/dev/null; then
+        colorize yellow "Failed to backup HAProxy config $haproxy_config."
+    fi
+
+    # Remove existing configuration for this tunnel
+    if ! sed -i "/#start:$tunnel_port/,/#end:$tunnel_port/d" "$haproxy_config" 2>/dev/null; then
+        colorize yellow "Failed to remove existing HAProxy config for tunnel $tunnel_name."
+    fi
+
+    # Append new configuration for this tunnel
+    cat << EOF >> "$haproxy_config"
+#start:$tunnel_port
+EOF
+    for port in "${ports[@]}"; do
+        cat << EOF >> "$haproxy_config"
+frontend vless_frontend_${port}
+    bind *:${port}
+    mode tcp
+    option tcplog
+    default_backend vless_backend_${port}
+
+backend vless_backend_${port}
+    mode tcp
+    option tcp-check
+    server RGT_server ${kharej_bridge_ip%/*}:${port} check inter 5000 rise 2 fall 3
+EOF
+    done
+    cat << EOF >> "$haproxy_config"
+#end:$tunnel_port
+EOF
+
+    # Validate HAProxy configuration
+    if ! haproxy -c -f "$haproxy_config" >/dev/null 2>&1; then
+        colorize red "Invalid HAProxy configuration. Restoring backup."
+        if [[ -f "${haproxy_config}.bak" ]]; then
+            cp "${haproxy_config}.bak" "$haproxy_config" 2>/dev/null || {
+                colorize red "Failed to restore HAProxy backup."
+            }
+        fi
+        return 1
+    fi
+
+    # Restart HAProxy
+    if ! systemctl restart haproxy >/dev/null 2>&1; then
+        colorize red "Failed to restart HAProxy."
+        if [[ -f "${haproxy_config}.bak" ]]; then
+            cp "${haproxy_config}.bak" "$haproxy_config" 2>/dev/null || {
+                colorize red "Failed to restore HAProxy backup."
+            }
+        fi
+        return 1
+    fi
+
+    colorize green "HAProxy configuration updated successfully."
+    return 0
+}
+
+# Function to remove HAProxy configuration for a tunnel
+remove_haproxy_config() {
+    local tunnel_name="$1"
+    local haproxy_config="$HAPROXY_CFG"
+
+    # Create backup of existing HAProxy config
+    cp "$haproxy_config" "${haproxy_config}.bak" 2>/dev/null || { colorize yellow "Failed to backup HAProxy config"; }
+
+    # Remove configuration for this tunnel
+    sed -i "/#start:$tunnel_port/,/#end:$tunnel_port/d" "$haproxy_config" 2>/dev/null
+
+    # Validate HAProxy configuration
+    if [[ -f "$haproxy_config" ]] && ! haproxy -c -f "$haproxy_config" >/dev/null 2>&1; then
+        colorize red "Invalid HAProxy configuration after removal. Restoring backup."
+        cp "${haproxy_config}.bak" "$haproxy_config" 2>/dev/null
+        return 1
+    fi
+
+    # Restart HAProxy
+    systemctl restart haproxy || { colorize red "Failed to restart HAProxy"; return 1; }
+    colorize green "HAProxy configuration for tunnel $tunnel_name removed."
+    return 0
+}
 # Function to configure Direct tunnel for Iran server
-function configure_direct_iran() {
+configure_direct_iran() {
     read -p "[*] Enter tunnel name (e.g., direct-tunnel): " tunnel_name
     tunnel_name=$(echo "$tunnel_name" | tr ' ' '-' | tr -d '[:space:]')
     if [[ -z "$tunnel_name" ]]; then
@@ -358,7 +516,11 @@ function configure_direct_iran() {
     colorize green "Iran server address: $local_ip"
 
     read -p "[*] Enter Kharej server IP (IPv4 or [IPv6]): " remote_ip
-    [[ -z "$remote_ip" ]] && { colorize red "Server address cannot be empty."; press_key; return 1; }
+    if [[ -z "$remote_ip" ]]; then
+        colorize red "Server address cannot be empty."
+        press_key
+        return 1
+    fi
     if check_ipv6 "$remote_ip"; then
         remote_ip="${remote_ip#[}"
         remote_ip="${remote_ip%]}"
@@ -371,9 +533,26 @@ function configure_direct_iran() {
     while true; do
         read -p "[*] Enter tunnel port (e.g., 4790): " tunnel_port
         if [[ "$tunnel_port" =~ ^[0-9]+$ ]] && [ "$tunnel_port" -gt 22 ] && [ "$tunnel_port" -le 65535 ]; then
-            break
+            if check_port "$tunnel_port" "udp"; then
+                colorize red "Port $tunnel_port is in use."
+            else
+                break
+            fi
         else
             colorize red "Enter a valid port (23-65535)"
+        fi
+    done
+
+    while true; do
+        read -p "[*] Enter VXLAN ID (1-16777215): " vxlan_id
+        if [[ "$vxlan_id" =~ ^[0-9]+$ ]] && [ "$vxlan_id" -ge 1 ] && [ "$vxlan_id" -le 16777215 ]; then
+            if ip link show "vxlan${vxlan_id}" >/dev/null 2>&1; then
+                colorize red "VXLAN ID $vxlan_id is already in use."
+            else
+                break
+            fi
+        else
+            colorize red "Enter a valid VXLAN ID (1-16777215)"
         fi
     done
 
@@ -381,7 +560,9 @@ function configure_direct_iran() {
     colorize green "Detected network interface: $network_interface"
 
     read -p "[*] Enter Iran bridge IP address (default: 10.0.10.1): " iran_bridge_ip
-    [[ -z "$iran_bridge_ip" ]] && iran_bridge_ip="10.0.10.1"
+    if [[ -z "$iran_bridge_ip" ]]; then
+        iran_bridge_ip="10.0.10.1"
+    fi
     if [[ ! "$iran_bridge_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         colorize red "Invalid bridge IP address (must be in format 10.0.10.x)."
         press_key
@@ -391,7 +572,9 @@ function configure_direct_iran() {
     colorize green "Iran bridge IP: $iran_bridge_ip"
 
     read -p "[*] Enter Kharej bridge IP address (default: 10.0.10.2): " kharej_bridge_ip
-    [[ -z "$kharej_bridge_ip" ]] && kharej_bridge_ip="10.0.10.2"
+    if [[ -z "$kharej_bridge_ip" ]]; then
+        kharej_bridge_ip="10.0.10.2"
+    fi
     if [[ ! "$kharej_bridge_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
         colorize red "Invalid bridge IP address (must be in format 10.0.10.x)."
         press_key
@@ -400,20 +583,16 @@ function configure_direct_iran() {
     kharej_bridge_ip="${kharej_bridge_ip}/24"
     colorize green "Kharej bridge IP: $kharej_bridge_ip"
 
-    read -p "[*] Enter VXLAN ID (default: 100): " vxlan_id
-    [[ -z "$vxlan_id" ]] && vxlan_id=100
-    if [[ ! "$vxlan_id" =~ ^[0-9]+$ ]] || [ "$vxlan_id" -lt 1 ] || [ "$vxlan_id" -gt 16777215 ]; then
-        colorize red "Invalid VXLAN ID. Must be between 1 and 16777215."
-        press_key
-        return 1
-    fi
+    ip link delete "vxlan${vxlan_id}" 2>/dev/null
+    ip link delete "br${vxlan_id}" 2>/dev/null
+    ip addr flush dev "br${vxlan_id}" 2>/dev/null
 
     if ! validate_vxlan_setup "$local_ip" "$remote_ip" "$tunnel_port" "$network_interface" "$vxlan_id"; then
         press_key
         return 1
     fi
 
-    read -p "[*] Enter service ports (e.g., 8008,8080): " input_ports
+    read -p "[*] Enter service ports (e.g., 8080,40001): " input_ports
     input_ports=$(echo "$input_ports" | tr -d ' ')
     IFS=',' read -r -a ports <<< "$input_ports"
     declare -a config_ports
@@ -435,133 +614,55 @@ function configure_direct_iran() {
         return 1
     fi
 
-    # Setup VXLAN and bridge
-    ip link add vxlan${vxlan_id} type vxlan id $vxlan_id local "$local_ip" remote "$remote_ip" dstport "$tunnel_port" dev "$network_interface"
-    if [[ $? -ne 0 ]]; then
+    ip link add vxlan${vxlan_id} type vxlan id "$vxlan_id" local "$local_ip" remote "$remote_ip" dstport "$tunnel_port" dev "$network_interface" || {
         colorize red "Failed to create VXLAN interface."
         press_key
         return 1
-    fi
-    ip link add name br${vxlan_id} type bridge
-    if [[ $? -ne 0 ]]; then
+    }
+    ip link add name br${vxlan_id} type bridge || {
         colorize red "Failed to create bridge."
         ip link delete vxlan${vxlan_id} 2>/dev/null
         press_key
         return 1
-    fi
-    ip link set vxlan${vxlan_id} master br${vxlan_id}
-    if [[ $? -ne 0 ]]; then
+    }
+    ip link set vxlan${vxlan_id} master br${vxlan_id} || {
         colorize red "Failed to attach VXLAN to bridge."
         ip link delete vxlan${vxlan_id} 2>/dev/null
         ip link delete br${vxlan_id} 2>/dev/null
         press_key
         return 1
-    fi
-    ip link set br${vxlan_id} up
-    if [[ $? -ne 0 ]]; then
+    }
+    ip link set br${vxlan_id} up || {
         colorize red "Failed to bring up bridge."
         ip link delete vxlan${vxlan_id} 2>/dev/null
         ip link delete br${vxlan_id} 2>/dev/null
         press_key
         return 1
-    fi
-    ip link set vxlan${vxlan_id} up
-    if [[ $? -ne 0 ]]; then
+    }
+    ip link set vxlan${vxlan_id} up || {
         colorize red "Failed to bring up VXLAN."
         ip link delete vxlan${vxlan_id} 2>/dev/null
         ip link delete br${vxlan_id} 2>/dev/null
         press_key
         return 1
-    fi
+    }
     ip addr flush dev br${vxlan_id} 2>/dev/null
-    ip addr add "$iran_bridge_ip" dev br${vxlan_id}
-    if [[ $? -ne 0 ]]; then
+    ip addr add "$iran_bridge_ip" dev br${vxlan_id} || {
         colorize red "Failed to assign IP to bridge."
         ip link delete vxlan${vxlan_id} 2>/dev/null
         ip link delete br${vxlan_id} 2>/dev/null
         press_key
         return 1
-    fi
+    }
 
-    # Ensure HAProxy config file exists
-    if [[ ! -f "$HAPROXY_CFG" ]]; then
-        colorize yellow "HAProxy configuration file not found. Creating a new one..."
-        mkdir -p /etc/haproxy
-        cat << EOF > "$HAPROXY_CFG"
-global
-    log /dev/log local0 warning
-    maxconn 4096
-    user haproxy
-    group haproxy
-    daemon
-
-defaults
-    log global
-    mode tcp
-    option tcplog
-    timeout connect 5000ms
-    timeout client 50000ms
-    timeout server 50000ms
-    timeout check 5000ms
-
-EOF
-        chown haproxy:haproxy "$HAPROXY_CFG"
-        chmod 644 "$HAPROXY_CFG"
-    fi
-
-    # Check if tunnel already exists in HAProxy config
-    if grep -q "# Tunnel-specific configuration for $tunnel_name" "$HAPROXY_CFG"; then
-        colorize red "Tunnel $tunnel_name already exists in HAProxy configuration."
-        ip link delete vxlan${vxlan_id} 2>/dev/null
-        ip link delete br${vxlan_id} 2>/dev/null
-        press_key
-        return 1
-    fi
-
-    # Create a temporary file for HAProxy config
-    temp_haproxy_cfg=$(mktemp)
-    cp "$HAPROXY_CFG" "$temp_haproxy_cfg"
-
-    # Append tunnel-specific HAProxy config
-    for port in "${config_ports[@]}"; do
-        cat << EOF >> "$temp_haproxy_cfg"
-# Tunnel-specific configuration for $tunnel_name
-frontend RGT_frontend_${port}
-    bind *:${port}
-    mode tcp
-    option tcplog
-    default_backend RGT_backend_${port}
-
-backend RGT_backend_${port}
-    mode tcp
-    option tcp-check
-    server RGT_server ${kharej_bridge_ip%/*}:${port} check inter 5000 rise 2 fall 3
-
-EOF
-    done
-
-    # Validate HAProxy config
-    if ! haproxy -c -f "$temp_haproxy_cfg"; then
-        colorize red "HAProxy configuration is invalid. Reverting changes."
-        rm -f "$temp_haproxy_cfg"
-        ip link delete vxlan${vxlan_id} 2>/dev/null
-        ip link delete br${vxlan_id} 2>/dev/null
-        press_key
-        return 1
-    fi
-
-    # Apply new HAProxy config
-    mv "$temp_haproxy_cfg" "$HAPROXY_CFG"
-    if [[ $? -ne 0 ]]; then
+    if ! update_haproxy_config "$tunnel_name" "${config_ports[@]}" "$kharej_bridge_ip"; then
         colorize red "Failed to update HAProxy configuration."
         ip link delete vxlan${vxlan_id} 2>/dev/null
         ip link delete br${vxlan_id} 2>/dev/null
-        rm -f "$temp_haproxy_cfg"
         press_key
         return 1
     fi
 
-    # Save tunnel configuration
     config_file="${CONFIG_DIR}/direct-iran-${tunnel_name}.conf"
     cat << EOF > "$config_file"
 vxlan_id=$vxlan_id
@@ -571,10 +672,9 @@ dstport=$tunnel_port
 network_interface=$network_interface
 iran_bridge_ip=$iran_bridge_ip
 kharej_bridge_ip=$kharej_bridge_ip
-ports=${input_ports}
+ports=$input_ports
 EOF
 
-    # Create systemd service
     service_file="${SERVICE_DIR}/RGT-direct-iran-${tunnel_name}.service"
     cat << EOF > "$service_file"
 [Unit]
@@ -583,63 +683,37 @@ After=network.target
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash -c '
-  ip link show vxlan${vxlan_id} >/dev/null 2>&1 || ip link add vxlan${vxlan_id} type vxlan id ${vxlan_id} local $local_ip remote $remote_ip dstport $tunnel_port dev $network_interface;
-  ip link show br${vxlan_id} >/dev/null 2>&1 || ip link add name br${vxlan_id} type bridge;
-  ip link set vxlan${vxlan_id} master br${vxlan_id};
-  ip link set br${vxlan_id} up;
-  ip link set vxlan${vxlan_id} up;
-  ip addr flush dev br${vxlan_id} 2>/dev/null;
-  ip addr add $iran_bridge_ip dev br${vxlan_id};
-  systemctl restart haproxy
-'
-ExecStop=/bin/bash -c '
-  ip link delete vxlan${vxlan_id} 2>/dev/null;
-  ip link delete br${vxlan_id} 2>/dev/null;
-  systemctl restart haproxy
-'
+ExecStart=/bin/bash -c "ip link show vxlan${vxlan_id} >/dev/null 2>&1 || ip link add vxlan${vxlan_id} type vxlan id $vxlan_id local $local_ip remote $remote_ip dstport $tunnel_port dev $network_interface; ip link show br${vxlan_id} >/dev/null 2>&1 || ip link add name br${vxlan_id} type bridge; ip link set vxlan${vxlan_id} master br${vxlan_id}; ip link set br${vxlan_id} up; ip link set vxlan${vxlan_id} up; ip addr flush dev br${vxlan_id} 2>/dev/null; ip addr add $iran_bridge_ip dev br${vxlan_id}; systemctl restart haproxy"
+ExecStop=/bin/bash -c "ip link delete vxlan${vxlan_id} 2>/dev/null; ip link delete br${vxlan_id} 2>/dev/null; systemctl restart haproxy"
 RemainAfterExit=yes
-
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-    # Reload systemd and start services
-    systemctl daemon-reload
-    if [[ $? -ne 0 ]]; then
+    systemctl daemon-reload || {
         colorize red "Failed to reload systemd"
         press_key
         return 1
-    fi
-    systemctl enable "RGT-direct-iran-${tunnel_name}.service"
-    if [[ $? -ne 0 ]]; then
+    }
+    systemctl enable "RGT-direct-iran-${tunnel_name}.service" || {
         colorize red "Failed to enable service"
         press_key
         return 1
-    fi
-    systemctl start "RGT-direct-iran-${tunnel_name}.service"
-    if [[ $? -ne 0 ]]; then
+    }
+    systemctl start "RGT-direct-iran-${tunnel_name}.service" || {
         colorize red "Failed to start service. Check 'systemctl status RGT-direct-iran-${tunnel_name}.service' for details"
         press_key
         return 1
-    fi
-    systemctl restart haproxy
-    if [[ $? -ne 0 ]]; then
-        colorize red "Failed to restart HAProxy"
-        press_key
-        return 1
-    fi
+    }
     colorize green "Direct tunnel configuration for Iran server '$tunnel_name' completed."
     colorize green "Iran bridge IP: ${iran_bridge_ip}"
     colorize green "Kharej bridge IP to use: ${kharej_bridge_ip}"
-    colorize green "Configured ports: ${input_ports}"
     press_key
     return 0
 }
-
 # Function to configure Direct tunnel for Kharej server
-function configure_direct_kharej() {
+configure_direct_kharej() {
     read -p "[*] Enter tunnel name (e.g., direct-tunnel): " tunnel_name
     tunnel_name=$(echo "$tunnel_name" | tr ' ' '-' | tr -d '[:space:]')
     if [[ -z "$tunnel_name" ]]; then
@@ -699,15 +773,22 @@ function configure_direct_kharej() {
         fi
     done
 
+    while true; do
+        read -p "[*] Enter VXLAN ID (1-16777215): " vxlan_id
+        if [[ "$vxlan_id" =~ ^[0-9]+$ ]] && [ "$vxlan_id" -ge 1 ] && [ "$vxlan_id" -le 16777215 ]; then
+            if ip link show "vxlan${vxlan_id}" >/dev/null 2>&1; then
+                colorize red "VXLAN ID $vxlan_id is already in use."
+            else
+                break
+            fi
+        else
+            colorize red "Enter a valid VXLAN ID (1-16777215)"
+        fi
+    done
+
     network_interface=$(detect_network_interface)
     colorize green "Detected network interface: $network_interface"
-        read -p "[*] Enter VXLAN ID (default: 100): " vxlan_id
-        [[ -z "$vxlan_id" ]] && vxlan_id=100
-        if [[ ! "$vxlan_id" =~ ^[0-9]+$ ]] || [ "$vxlan_id" -lt 1 ] || [ "$vxlan_id" -gt 16777215 ]; then
-                colorize red "Invalid VXLAN ID. Must be between 1 and 16777215."
-                press_key
-                return 1
-        fi
+
     read -p "[*] Enter Kharej bridge IP address (default: 10.0.10.2): " bridge_ip
     [[ -z "$bridge_ip" ]] && bridge_ip="10.0.10.2"
     if [[ ! "$bridge_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -718,7 +799,6 @@ function configure_direct_kharej() {
     bridge_ip="${bridge_ip}/24"
     colorize green "Kharej bridge IP: $bridge_ip"
 
-    
     ip link delete "vxlan${vxlan_id}" 2>/dev/null
     ip link delete "br${vxlan_id}" 2>/dev/null
     ip addr flush dev "br${vxlan_id}" 2>/dev/null
@@ -805,7 +885,7 @@ EOF
 }
 
 # Function to configure Iran server
-function iran_server_configuration() {
+iran_server_configuration() {
     clear
     colorize cyan "Configuring Iran Server" bold
     echo
@@ -935,13 +1015,14 @@ WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload
-    systemctl enable --now "RGT-iran-${tunnel_name}.service" || { colorize red "Failed to enable service"; return 1; }    colorize green "Iran server configuration for tunnel '$tunnel_name' completed."
+    systemctl enable --now "RGT-iran-${tunnel_name}.service" || { colorize red "Failed to enable service"; return 1; }
+    colorize green "Iran server configuration for tunnel '$tunnel_name' completed."
     press_key
     return 0
 }
 
 # Function to configure Kharej server
-function kharej_server_configuration() {
+kharej_server_configuration() {
     clear
     colorize cyan "Configuring Kharej Server" bold
     echo
@@ -1072,7 +1153,7 @@ EOF
 }
 
 # Function to edit tunnel
-function edit_tunnel() {
+edit_tunnel() {
     local config_path="$1"
     local tunnel_type="$2"
     local tunnel_name=$(basename "${config_path%.toml}" "${config_path%.conf}" | sed 's/iran-//;s/kharej-//;s/direct-iran-//;s/direct-kharej-//')
@@ -1112,13 +1193,14 @@ function edit_tunnel() {
         *) colorize red "Invalid option!" && sleep 1 ;;
     esac
     service_name="RGT-${tunnel_type}-${tunnel_name}.service"
-    systemctl restart "$service_name" || { colorize red "Failed to restart service after edit"; press_key; return 1; }    if [[ "$tunnel_type" == "direct-iran" ]] && [[ -f "/etc/haproxy/haproxy-${tunnel_name}.cfg" ]]; then
+    systemctl restart "$service_name" || { colorize red "Failed to restart service after edit"; press_key; return 1; }
+    if [[ "$tunnel_type" == "direct-iran" ]] && [[ -f "/etc/haproxy/haproxy-${tunnel_name}.cfg" ]]; then
         systemctl restart haproxy || { colorize red "Failed to restart HAProxy"; return 1; }
     fi
 }
 
 # Function to edit tunnel port
-function edit_tunnel_port() {
+edit_tunnel_port() {
     local config_path="$1"
     local tunnel_type="$2"
     local tunnel_name="$3"
@@ -1169,7 +1251,7 @@ EOF
 }
 
 # Function to edit config port
-function edit_config_port() {
+edit_config_port() {
     local config_path="$1"
     local tunnel_type="$2"
     local tunnel_name=$(basename "${config_path%.toml}" | sed 's/iran-//;s/kharej-//')
@@ -1203,7 +1285,7 @@ function edit_config_port() {
 }
 
 # Function to edit security token
-function edit_security_token() {
+edit_security_token() {
     local config_path="$1"
     local tunnel_type="$2"
     local tunnel_name=$(basename "${config_path%.toml}" | sed 's/iran-//;s/kharej-//')
@@ -1216,7 +1298,7 @@ function edit_security_token() {
 }
 
 # Function to edit remote IP for direct tunnel
-function edit_remote_ip() {
+edit_remote_ip() {
     local config_path="$1"
     local tunnel_type="$2"
     local tunnel_name=$(basename "${config_path%.conf}" | sed 's/direct-iran-//;s/direct-kharej-//')
@@ -1257,7 +1339,7 @@ EOF
 }
 
 # Function to edit HAProxy ports (Iran only)
-function edit_haproxy_ports() {
+edit_haproxy_ports() {
     local config_path="$1"
     local tunnel_type="$2"
     local tunnel_name=$(basename "${config_path%.conf}" | sed 's/direct-iran-//')
@@ -1282,49 +1364,26 @@ function edit_haproxy_ports() {
             colorize red "Port $port is invalid. Must be between 23-65535."
         fi
     done
-    [[ ${#config_ports[@]} -eq 0 ]] && { colorize red "No valid ports entered."; sleep 2; return 1; }
+    if [[ ${#config_ports[@]} -eq 0 ]]; then
+        colorize red "No valid ports entered."
+        sleep 2
+        return 1
+    fi
     kharej_bridge_ip=$(grep "kharej_bridge_ip" "$config_path" | cut -d'=' -f2 | tr -d ' ')
-    haproxy_config="/etc/haproxy/haproxy-${tunnel_name}.cfg"
-    cat << EOF > "$haproxy_config"
-global
-    log /dev/log local0 warning
-    maxconn 4096
-    user haproxy
-    group haproxy
-    daemon
-
-defaults
-    log global
-    mode tcp
-    option tcplog
-    timeout connect 5000ms
-    timeout client 50000ms
-    timeout server 50000ms
-    timeout check 5000ms
-
-EOF
-    for port in "${config_ports[@]}"; do
-        cat << EOF >> "$haproxy_config"
-frontend vless_frontend_${port}
-    bind *:${port}
-    mode tcp
-    option tcplog
-    default_backend vless_backend_${port}
-
-backend vless_backend_${port}
-    mode tcp
-    option tcp-check
-    server RGT_server ${kharej_bridge_ip%/*}:${port} check inter 5000 rise 2 fall 3
-
-EOF
-    done
-    sed -i "s/ports=.*/ports=${input_ports}/" "$config_path" || { colorize red "Failed to update ports in config"; return 1; }
+    if ! update_haproxy_config "$tunnel_name" "${config_ports[@]}" "$kharej_bridge_ip"; then
+        colorize red "Failed to update HAProxy configuration."
+        return 1
+    fi
+    sed -i "s/ports=.*/ports=${input_ports}/" "$config_path" || {
+        colorize red "Failed to update ports in config"
+        return 1
+    }
     colorize green "HAProxy ports updated successfully."
     press_key
+    return 0
 }
-
 # Function to edit Iran bridge IP (Iran only)
-function edit_iran_bridge_ip() {
+edit_iran_bridge_ip() {
     local config_path="$1"
     local tunnel_type="$2"
     local tunnel_name=$(basename "${config_path%.conf}" | sed 's/direct-iran-//')
@@ -1363,7 +1422,7 @@ EOF
 }
 
 # Function to edit Kharej bridge IP
-function edit_kharej_bridge_ip() {
+edit_kharej_bridge_ip() {
     local config_path="$1"
     local tunnel_type="$2"
     local tunnel_name=$(basename "${config_path%.conf}" | sed 's/direct-iran-//;s/direct-kharej-//')
@@ -1415,7 +1474,7 @@ EOF
 }
 
 # Function to add new ports
-function add_new_ports() {
+add_new_ports() {
     local config_path="$1"
     local tunnel_type="$2"
     local tunnel_name=$(basename "${config_path%.toml}" | sed 's/iran-//;s/kharej-//')
@@ -1469,7 +1528,7 @@ EOF
 }
 
 # Function to edit Iran IP (Kharej only)
-function edit_iran_ip() {
+edit_iran_ip() {
     local config_path="$1"
     local tunnel_name=$(basename "${config_path%.toml}" | sed 's/kharej-//')
     read -p "[*] Enter new Iran server IP (IPv4 or [IPv6]): " new_ip
@@ -1489,7 +1548,7 @@ function edit_iran_ip() {
 }
 
 # Function to manage tunnels
-function manage_tunnel() {
+manage_tunnel() {
     clear
     local tunnel_found=0
     colorize cyan "List of existing tunnels:" bold
@@ -1499,28 +1558,6 @@ function manage_tunnel() {
     declare -a config_types
     declare -a tunnel_names
     declare -a service_names
-
-    # Function to check tunnel status
-    check_tunnel_status() {
-        local service_name="$1"
-        local tunnel_type="$2"
-        local tunnel_name="$3"
-        # Check if service is not active
-        if ! systemctl is-active "$service_name" &> /dev/null; then
-            return 1
-        fi
-        # Check for HAProxy errors for direct-iran tunnels
-        if [[ "$tunnel_type" == "direct-iran" ]]; then
-            local ports=$(grep "^ports=" "${CONFIG_DIR}/direct-iran-${tunnel_name}.conf" 2>/dev/null | cut -d'=' -f2 | tr -d ' ')
-            IFS=',' read -r -a port_array <<< "$ports"
-            for port in "${port_array[@]}"; do
-                if journalctl -u haproxy -n 100 --no-pager | grep -q "backend RGT_backend_${port}.*no server available"; then
-                    return 1
-                fi
-            done
-        fi
-        return 0
-    }
 
     # List Direct Iran tunnels
     for config_path in "$CONFIG_DIR"/direct-iran-*.conf; do
@@ -1539,11 +1576,7 @@ function manage_tunnel() {
             config_types+=("$tunnel_type")
             tunnel_names+=("$tunnel_name")
             service_names+=("$service_name")
-            if check_tunnel_status "$service_name" "$tunnel_type" "$tunnel_name"; then
-                echo -e "${CYAN}${index}${NC}) ${GREEN}Direct Iran Tunnel ${tunnel_name}${NC} (Tunnel Port: ${YELLOW}${tunnel_port}${NC}, HAProxy Ports: ${YELLOW}${config_ports}${NC}, Bridge IP: ${YELLOW}${bridge_ip}${NC})"
-            else
-                echo -e "${CYAN}${index}${NC}) ${RED}Direct Iran Tunnel ${tunnel_name}${NC} (Tunnel Port: ${YELLOW}${tunnel_port}${NC}, HAProxy Ports: ${YELLOW}${config_ports}${NC}, Bridge IP: ${YELLOW}${bridge_ip}${NC})"
-            fi
+            echo -e "${CYAN}${index}${NC}) ${GREEN}Direct Iran Tunnel ${tunnel_name}${NC} (Tunnel Port: ${YELLOW}${tunnel_port}${NC}, HAProxy Ports: ${YELLOW}${config_ports}${NC}, Bridge IP: ${YELLOW}${bridge_ip}${NC})"
             ((index++))
         fi
     done
@@ -1563,11 +1596,7 @@ function manage_tunnel() {
             config_types+=("$tunnel_type")
             tunnel_names+=("$tunnel_name")
             service_names+=("$service_name")
-            if check_tunnel_status "$service_name" "$tunnel_type" "$tunnel_name"; then
-                echo -e "${CYAN}${index}${NC}) ${GREEN}Direct Kharej Tunnel ${tunnel_name}${NC} (Tunnel Port: ${YELLOW}${tunnel_port}${NC}, Bridge IP: ${YELLOW}${bridge_ip}${NC})"
-            else
-                echo -e "${CYAN}${index}${NC}) ${RED}Direct Kharej Tunnel ${tunnel_name}${NC} (Tunnel Port: ${YELLOW}${tunnel_port}${NC}, Bridge IP: ${YELLOW}${bridge_ip}${NC})"
-            fi
+            echo -e "${CYAN}${index}${NC}) ${GREEN}Direct Kharej Tunnel ${tunnel_name}${NC} (Tunnel Port: ${YELLOW}${tunnel_port}${NC}, Bridge IP: ${YELLOW}${bridge_ip}${NC})"
             ((index++))
         fi
     done
@@ -1587,11 +1616,7 @@ function manage_tunnel() {
             config_types+=("$tunnel_type")
             tunnel_names+=("$tunnel_name")
             service_names+=("$service_name")
-            if check_tunnel_status "$service_name" "$tunnel_type" "$tunnel_name"; then
-                echo -e "${CYAN}${index}${NC}) ${GREEN}Iran Tunnel ${tunnel_name}${NC} (Tunnel Port: ${YELLOW}${tunnel_port}${NC}, Service Ports: ${YELLOW}${config_ports}${NC})"
-            else
-                echo -e "${CYAN}${index}${NC}) ${RED}Iran Tunnel ${tunnel_name}${NC} (Tunnel Port: ${YELLOW}${tunnel_port}${NC}, Service Ports: ${YELLOW}${config_ports}${NC})"
-            fi
+            echo -e "${CYAN}${index}${NC}) ${GREEN}Iran Tunnel ${tunnel_name}${NC} (Tunnel Port: ${YELLOW}${tunnel_port}${NC}, Service Ports: ${YELLOW}${config_ports}${NC})"
             ((index++))
         fi
     done
@@ -1611,11 +1636,7 @@ function manage_tunnel() {
             config_types+=("$tunnel_type")
             tunnel_names+=("$tunnel_name")
             service_names+=("$service_name")
-            if check_tunnel_status "$service_name" "$tunnel_type" "$tunnel_name"; then
-                echo -e "${CYAN}${index}${NC}) ${GREEN}Kharej Tunnel ${tunnel_name}${NC} (Tunnel Port: ${YELLOW}${tunnel_port}${NC}, Service Ports: ${YELLOW}${config_ports}${NC})"
-            else
-                echo -e "${CYAN}${index}${NC}) ${RED}Kharej Tunnel ${tunnel_name}${NC} (Tunnel Port: ${YELLOW}${tunnel_port}${NC}, Service Ports: ${YELLOW}${config_ports}${NC})"
-            fi
+            echo -e "${CYAN}${index}${NC}) ${GREEN}Kharej Tunnel ${tunnel_name}${NC} (Tunnel Port: ${YELLOW}${tunnel_port}${NC}, Service Ports: ${YELLOW}${config_ports}${NC})"
             ((index++))
         fi
     done
@@ -1641,6 +1662,13 @@ function manage_tunnel() {
     tunnel_name="${tunnel_names[$((choice - 1))]}"
     service_name="${service_names[$((choice - 1))]}"
     service_path="${SERVICE_DIR}/${service_name}"
+
+    # Debug output
+    #echo "Debug: selected_config=$selected_config"
+    #echo "Debug: tunnel_type=$tunnel_type"
+    #echo "Debug: tunnel_name=$tunnel_name"
+    #echo "Debug: service_name=$service_name"
+    #echo "Debug: service_path=$service_path"
 
     # Verify config and service files
     if [[ ! -f "$selected_config" ]]; then
@@ -1689,7 +1717,8 @@ function manage_tunnel() {
             if [[ $? -eq 0 ]]; then
                 colorize green "Tunnel $tunnel_name stopped successfully."
             else
-                colorize red "Failed to stop tunnel $tunnel_name. Check 'systemctl status $service_name' for details."            fi
+                colorize red "Failed to stop tunnel $tunnel_name. Check 'systemctl status $service_name' for details."
+            fi
             if [[ "$tunnel_type" == "direct-iran" || "$tunnel_type" == "direct-kharej" ]]; then
                 systemctl restart haproxy
                 if [[ $? -eq 0 ]]; then
@@ -1727,7 +1756,45 @@ function manage_tunnel() {
         6)
             read -p "Are you sure you want to delete tunnel $tunnel_name? (y/n): " confirm
             if [[ "$confirm" == "y" || "$confirm" == "Y" ]]; then
-                destroy_tunnel "$selected_config" "$tunnel_type"
+                systemctl stop "$service_name" 2>/dev/null
+                systemctl disable "$service_name" 2>/dev/null
+                rm -f "$service_path"
+                if [[ "$tunnel_type" == "direct-iran" || "$tunnel_type" == "direct-kharej" ]]; then
+                    vxlan_id=$(grep "^vxlan_id=" "$selected_config" 2>/dev/null | cut -d'=' -f2 | tr -d ' ')
+                    tunnel_port=$(grep "^dstport=" "$selected_config" 2>/dev/null | cut -d'=' -f2 | tr -d ' ')
+                    ip link delete "vxlan${vxlan_id}" 2>/dev/null
+                    ip link delete "br${vxlan_id}" 2>/dev/null
+                    if [[ "$tunnel_type" == "direct-iran" ]]; then
+                        haproxy_config="/etc/haproxy/haproxy.cfg"
+                        if [[ -f "$haproxy_config" ]]; then
+                            cp "$haproxy_config" "${haproxy_config}.bak" 2>/dev/null || {
+                                colorize yellow "Failed to backup HAProxy config."
+                                press_key
+                            }
+                            if ! sed -i "/^[[:space:]]*#start:$tunnel_port[[:space:]]*$/,/^[[:space:]]*#end:$tunnel_port[[:space:]]*$/d" "$haproxy_config" 2>/dev/null; then
+                                colorize yellow "No configuration found for port $tunnel_port in HAProxy."
+                                press_key
+                            else
+                                systemctl restart haproxy 2>/dev/null
+                                if [[ $? -eq 0 ]]; then
+                                    colorize green "Tunnel section removed and HAProxy restarted."
+                                else
+                                    colorize red "Failed to restart HAProxy."
+                                    if [[ -f "${haproxy_config}.bak" ]]; then
+                                        cp "${haproxy_config}.bak" "$haproxy_config" 2>/dev/null
+                                        colorize yellow "Restored HAProxy backup."
+                                    fi
+                                    press_key
+                                    rm -f "$selected_config"
+                                    return 1
+                                fi
+                            fi
+                        fi
+                    fi
+                fi
+                rm -f "$selected_config"
+                systemctl daemon-reload
+                colorize green "Tunnel $tunnel_name deleted successfully."
             else
                 colorize yellow "Tunnel deletion canceled."
             fi
@@ -1739,19 +1806,19 @@ function manage_tunnel() {
             colorize red "Invalid option!"
             ;;
     esac
+    press_key
 }
-
-function destroy_tunnel() {
+# Modified destroy_tunnel to handle HAProxy config cleanup
+destroy_tunnel() {
     local config_path="$1"
     local tunnel_type="$2"
     tunnel_name=$(basename "${config_path%.toml}" "${config_path%.conf}" | sed 's/iran-//;s/kharej-//;s/direct-iran-//;s/direct-kharej-//')
     service_name="RGT-${tunnel_type}-${tunnel_name}.service"
-    service_path="/etc/systemd/system/${service_name}"
-    HAPROXY_CFG="/etc/haproxy/haproxy.cfg"
+    service_path="${SERVICE_DIR}/${service_name}"
 
-    # Check if config file exists
-    if [[ ! -f "$config_path" ]]; then
-        colorize red "Config file $config_path not found."
+    # Check if service file exists
+    if [[ ! -f "$service_path" ]]; then
+        colorize red "Service file $service_path not found."
         press_key
         return 1
     fi
@@ -1766,7 +1833,13 @@ function destroy_tunnel() {
 
     # Remove the service file
     rm -f "$service_path" || { colorize yellow "Failed to remove service file $service_path."; press_key; return 1; }
-    systemctl daemon-reload || { colorize yellow "Failed to reload systemd."; press_key; return 1; }
+
+    # Remove the configuration file
+    if [[ -f "$config_path" ]]; then
+        rm -f "$config_path" || { colorize yellow "Failed to remove config file $config_path."; press_key; return 1; }
+    else
+        colorize yellow "Config file $config_path not found."
+    fi
 
     # Clean up VXLAN and bridge interfaces for direct tunnels
     if [[ "$tunnel_type" == "direct-iran" || "$tunnel_type" == "direct-kharej" ]]; then
@@ -1775,24 +1848,13 @@ function destroy_tunnel() {
             ip link delete "vxlan${vxlan_id}" 2>/dev/null || colorize yellow "Failed to delete VXLAN interface vxlan${vxlan_id}."
             ip link delete "br${vxlan_id}" 2>/dev/null || colorize yellow "Failed to delete bridge interface br${vxlan_id}."
         fi
-        # Remove HAProxy configuration file completely for direct-iran tunnels
         if [[ "$tunnel_type" == "direct-iran" ]]; then
-            if [[ -f "$HAPROXY_CFG" ]]; then
-                rm -f "$HAPROXY_CFG" || { colorize yellow "Failed to remove HAProxy configuration file."; press_key; return 1; }
-                colorize green "HAProxy configuration file removed."
-            fi
-            # Stop and disable HAProxy
-            systemctl stop haproxy &> /dev/null
-            systemctl disable haproxy &> /dev/null
-            colorize green "HAProxy service stopped and disabled."
+            remove_haproxy_config "$tunnel_name" || { colorize yellow "Failed to remove HAProxy configuration."; press_key; return 1; }
         fi
     fi
 
-    # Remove the configuration file
-    rm -f "$config_path" || { colorize yellow "Failed to remove config file $config_path."; press_key; return 1; }
-
-    # Clear systemd journal to remove old broadcast messages
-    journalctl --vacuum-time=1s &> /dev/null
+    # Reload systemd to reflect changes
+    systemctl daemon-reload || { colorize yellow "Failed to reload systemd."; press_key; return 1; }
 
     colorize green "Tunnel $tunnel_name deleted successfully."
     press_key
@@ -1800,7 +1862,7 @@ function destroy_tunnel() {
 }
 
 # Function to restart service
-function restart_service() {
+restart_service() {
     local service_name="$1"
     colorize yellow "Restarting $service_name..." bold
     if systemctl list-units --type=service | grep -q "$service_name"; then
@@ -1829,8 +1891,8 @@ view_tunnel_status() {
     press_key
 }
 
-# Function to remove rgt core
-function remove_core() {
+# Modified remove_core to handle HAProxy config cleanup
+remove_core() {
     clear
     if ls "$CONFIG_DIR"/*.toml "$CONFIG_DIR"/*.conf &> /dev/null; then
         colorize red "Remove all tunnels before removing RGT core."
@@ -1851,8 +1913,17 @@ function remove_core() {
             systemctl disable "$service_name" 2>/dev/null
             rm -f "$service" || colorize yellow "Failed to remove service file $service."
         done
-        rm -f /etc/haproxy/haproxy-*.cfg 2>/dev/null || colorize yellow "Failed to remove HAProxy configs."
-        systemctl restart haproxy 2>/dev/null || colorize yellow "Failed to restart HAProxy."
+        # Remove all RGT-related HAProxy configurations
+        if [[ -f "$HAPROXY_CFG" ]]; then
+            cp "$HAPROXY_CFG" "${HAPROXY_CFG}.bak" 2>/dev/null
+            sed -i '/#start:/,/#end:/d' "$HAPROXY_CFG" 2>/dev/null
+            if haproxy -c -f "$HAPROXY_CFG" >/dev/null 2>&1; then
+                systemctl restart haproxy 2>/dev/null || colorize yellow "Failed to restart HAProxy."
+            else
+                colorize yellow "Invalid HAProxy configuration after cleanup. Restoring backup."
+                cp "${HAPROXY_CFG}.bak" "$HAPROXY_CFG" 2>/dev/null
+            fi
+        fi
         rm -rf "$CONFIG_DIR" || colorize yellow "Failed to remove RGT core directory $CONFIG_DIR."
         systemctl daemon-reload
         colorize green "RGT core removed."
@@ -1862,21 +1933,25 @@ function remove_core() {
     press_key
 }
 # Function to display logo
-function display_logo() {
+display_logo() {
     echo -e "${CYAN}"
     cat << "EOF"
-██████╗  ██████╗ ████████╗
-██╔══██╗██╔═══╗╚╗   ██╔══╝
-██████╔╝██║█████║   ██║   RGT Tunnel
-██╔╗██║ ██║   ██║   ██║   (by @Coderman_ir)
-██║║██║ ╚██████╔╝   ██║
-╚═╝╚==╝  ╚═════╝    ╚═╝
------------------------------------
+╭───────────────────────────────────────╮
+│      ██████╗  ██████╗ ████████╗       │
+│      ██╔══██╗██╔═══╗╚╗   ██╔══╝       │
+│      ██████╔╝██║█████║   ██║          │
+│      ██╔╗██║ ██║   ██║   ██║          │
+│      ██║║██║ ╚██████╔╝   ██║          │
+│      ╚═╝╚==╝  ╚═════╝    ╚═╝          │
+│     RGT Tunnel | by (@Coderman_ir)    │
+├───────────────────────────────────────┤
+│   @https://github.com/black-sec/RGT   │  
+╰───────────────────────────────────────╯
 EOF
 }
 
 # Function to display server info
-function display_server_info() {
+display_server_info() {
     SERVER_IP=$(hostname -I | awk '{print $1}')
     echo -e "${CYAN}IP Address:${NC} $SERVER_IP"
     if [[ -f "${RGT_BIN}" ]]; then
@@ -1884,24 +1959,23 @@ function display_server_info() {
     else
         echo -e "${CYAN}Core Installed:${NC} ${RED}No${NC}"
     fi
-    echo -e "${YELLOW}-----------------------------------${NC}"
+    echo -e "${YELLOW}-----------------------------------------${NC}"
 }
 
 # Function to display menu
-function display_menu() {
+display_menu() {
     clear
     display_logo
     echo -e "${CYAN}Version: ${YELLOW}1.0${NC}"
-    echo -e "${CYAN}GitHub: ${YELLOW}github.com/black-sec/RGT${NC}"
     display_server_info
-    echo
     colorize green "1) Setup new tunnel" bold
     colorize green "2) Manage tunnels" bold
-    colorize green "3) Install RGT core" bold
+    colorize cyan "3) Install RGT core" bold
     colorize red "4) Uninstall RGT core" bold
     colorize yellow "5) Update script" bold
     colorize cyan "6) RGT tools" bold
     colorize yellow "7) Exit" bold
+	echo -e "${YELLOW}-----------------------------------------${NC}"
     echo
 }
 
