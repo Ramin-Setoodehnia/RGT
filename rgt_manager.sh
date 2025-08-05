@@ -159,6 +159,11 @@ download_and_extract_rgt() {
     if [[ -f "${RGT_BIN}" ]] && [[ -x "${RGT_BIN}" ]]; then
         colorize green "RGT is already installed and executable." bold
         sleep 1
+        # If RGT is already installed, execute the script directly
+        if [[ -f "${SCRIPT_PATH}" ]] && [[ -x "${SCRIPT_PATH}" ]]; then
+            colorize yellow "Starting RGT manager..."
+            exec "${SCRIPT_PATH}"
+        fi
         return 0
     fi
     DOWNLOAD_URL="https://github.com/black-sec/RGT/raw/main/core/RGT-x86-64-linux.zip"
@@ -205,8 +210,15 @@ download_and_extract_rgt() {
         return 1
     fi
     # Verify the downloaded script is complete
-    if ! grep -q "function display_menu" "$TEMP_SCRIPT"; then
-        colorize red "Downloaded script is incomplete (missing display_menu)."
+    if ! grep -q "function display_menu" "$TEMP_SCRIPT" || ! grep -q "function install_dependencies" "$TEMP_SCRIPT"; then
+        colorize red "Downloaded script is incomplete (missing critical functions)."
+        rm -f "$TEMP_SCRIPT"
+        press_key
+        return 1
+    fi
+    # Verify the script size to ensure it’s not truncated
+    if [[ $(stat -c %s "$TEMP_SCRIPT") -lt 1000 ]]; then
+        colorize red "Downloaded script is too small and likely incomplete."
         rm -f "$TEMP_SCRIPT"
         press_key
         return 1
@@ -240,6 +252,13 @@ download_and_extract_rgt() {
     fi
     chmod +x "$MONITOR_SCRIPT_PATH"
     colorize green "rgt-port-monitor.sh installed successfully." bold
+
+    # Verify the copied script is executable and complete
+    if [[ ! -x "${SCRIPT_PATH}" ]] || ! grep -q "function display_menu" "${SCRIPT_PATH}"; then
+        colorize red "Installed script at ${SCRIPT_PATH} is not executable or incomplete."
+        press_key
+        return 1
+    fi
 
     # Execute the installed script to show the menu
     colorize yellow "Starting RGT manager..."
@@ -2082,10 +2101,18 @@ display_menu() {
 # Main loop
 install_dependencies
 mkdir -p "$CONFIG_DIR"
-if [[ ! -f "${SCRIPT_PATH}" ]]; then
+if [[ ! -f "${SCRIPT_PATH}" ]] || ! grep -q "function display_menu" "${SCRIPT_PATH}"; then
     cp "$0" "${SCRIPT_PATH}"
     chmod +x "${SCRIPT_PATH}"
     colorize green "Script is now executable as 'RGT' command." bold
+    # Verify the copied script is complete
+    if ! grep -q "function display_menu" "${SCRIPT_PATH}"; then
+        colorize red "Copied script at ${SCRIPT_PATH} is incomplete."
+        press_key
+        exit 1
+    fi
+    colorize yellow "Starting RGT manager..."
+    exec "${SCRIPT_PATH}"
 fi
 while true; do
     display_menu
