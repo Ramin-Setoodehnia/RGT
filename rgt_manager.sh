@@ -155,15 +155,11 @@ validate_zip_file() {
     return 0
 }
 
+# Function to download and install rgt
 download_and_extract_rgt() {
     if [[ -f "${RGT_BIN}" ]] && [[ -x "${RGT_BIN}" ]]; then
         colorize green "RGT is already installed and executable." bold
         sleep 1
-        # If RGT is already installed, execute the script directly
-        if [[ -f "${SCRIPT_PATH}" ]] && [[ -x "${SCRIPT_PATH}" ]]; then
-            colorize yellow "Starting RGT manager..."
-            exec "${SCRIPT_PATH}"
-        fi
         return 0
     fi
     DOWNLOAD_URL="https://github.com/black-sec/RGT/raw/main/core/RGT-x86-64-linux.zip"
@@ -210,15 +206,8 @@ download_and_extract_rgt() {
         return 1
     fi
     # Verify the downloaded script is complete
-    if ! grep -q "function display_menu" "$TEMP_SCRIPT" || ! grep -q "function install_dependencies" "$TEMP_SCRIPT"; then
-        colorize red "Downloaded script is incomplete (missing critical functions)."
-        rm -f "$TEMP_SCRIPT"
-        press_key
-        return 1
-    fi
-    # Verify the script size to ensure it’s not truncated
-    if [[ $(stat -c %s "$TEMP_SCRIPT") -lt 1000 ]]; then
-        colorize red "Downloaded script is too small and likely incomplete."
+    if ! grep -q "function display_menu" "$TEMP_SCRIPT"; then
+        colorize red "Downloaded script is incomplete (missing display_menu)."
         rm -f "$TEMP_SCRIPT"
         press_key
         return 1
@@ -233,36 +222,6 @@ download_and_extract_rgt() {
     chmod +x "${SCRIPT_PATH}"
     rm -f "$TEMP_SCRIPT"
     colorize green "Script is now executable as 'RGT' command." bold
-
-    # Download rgt-port-monitor.sh
-    MONITOR_SCRIPT_URL="https://raw.githubusercontent.com/black-sec/RGT/main/tools/rgt-port-monitor.sh"
-    MONITOR_SCRIPT_PATH="${CONFIG_DIR}/tools/rgt-port-monitor.sh"
-    colorize yellow "Downloading rgt-port-monitor.sh..."
-    mkdir -p "${CONFIG_DIR}/tools"
-    if ! curl -sSL -o "$MONITOR_SCRIPT_PATH" "$MONITOR_SCRIPT_URL"; then
-        colorize red "Failed to download rgt-port-monitor.sh."
-        press_key
-        return 1
-    fi
-    if ! grep -q "rgt-port-monitor.sh" "$MONITOR_SCRIPT_PATH"; then
-        colorize red "Downloaded rgt-port-monitor.sh is invalid."
-        rm -f "$MONITOR_SCRIPT_PATH"
-        press_key
-        return 1
-    fi
-    chmod +x "$MONITOR_SCRIPT_PATH"
-    colorize green "rgt-port-monitor.sh installed successfully." bold
-
-    # Verify the copied script is executable and complete
-    if [[ ! -x "${SCRIPT_PATH}" ]] || ! grep -q "function display_menu" "${SCRIPT_PATH}"; then
-        colorize red "Installed script at ${SCRIPT_PATH} is not executable or incomplete."
-        press_key
-        return 1
-    fi
-
-    # Execute the installed script to show the menu
-    colorize yellow "Starting RGT manager..."
-    exec "${SCRIPT_PATH}"
 }
 
 # Function to update script
@@ -288,28 +247,10 @@ update_script() {
     chmod +x "${SCRIPT_PATH}"
     colorize green "RGT Manager Script updated successfully."
     colorize yellow "Please re-run the script with 'RGT' command to use the updated version."
-
-    # Update rgt-port-monitor.sh
-    MONITOR_SCRIPT_URL="https://raw.githubusercontent.com/black-sec/RGT/main/tools/rgt-port-monitor.sh"
-    MONITOR_SCRIPT_PATH="${CONFIG_DIR}/tools/rgt-port-monitor.sh"
-    colorize yellow "Downloading updated rgt-port-monitor.sh..."
-    if ! curl -sSL -o "$MONITOR_SCRIPT_PATH" "$MONITOR_SCRIPT_URL"; then
-        colorize red "Failed to download updated rgt-port-monitor.sh."
-        press_key
-        return 1
-    fi
-    if ! grep -q "rgt-port-monitor.sh" "$MONITOR_SCRIPT_PATH"; then
-        colorize red "Downloaded rgt-port-monitor.sh is invalid."
-        rm -f "$MONITOR_SCRIPT_PATH"
-        press_key
-        return 1
-    fi
-    chmod +x "$MONITOR_SCRIPT_PATH"
-    colorize green "rgt-port-monitor.sh updated successfully."
-
     press_key
     exit 0
 }
+
 # Function to check if a port is in use
 check_port() {
     local port=$1
@@ -721,7 +662,7 @@ configure_direct_iran() {
         ip link delete br${vxlan_id} 2>/dev/null
         press_key
         return 1
-	fi
+    fi
 
     config_file="${CONFIG_DIR}/direct-iran-${tunnel_name}.conf"
     cat << EOF > "$config_file"
@@ -766,15 +707,6 @@ EOF
         press_key
         return 1
     }
-
-    # Start bandwidth monitoring for direct tunnel ports (Iran server only)
-    if [[ -f "${CONFIG_DIR}/tools/rgt-port-monitor.sh" ]]; then
-        for port in "${tunnel_port[@]}"; do
-            ${CONFIG_DIR}/tools/rgt-port-monitor.sh addport "$port" "udp"
-        done
-        ${CONFIG_DIR}/tools/rgt-port-monitor.sh install
-    fi
-
     colorize green "Direct tunnel configuration for Iran server '$tunnel_name' completed."
     colorize green "Iran bridge IP: ${iran_bridge_ip}"
     colorize green "Kharej bridge IP to use: ${kharej_bridge_ip}"
@@ -1085,19 +1017,11 @@ EOF
 
     systemctl daemon-reload
     systemctl enable --now "RGT-iran-${tunnel_name}.service" || { colorize red "Failed to enable service"; return 1; }
-
-    # Start bandwidth monitoring for reverse tunnel ports (Iran server only)
-    if [[ -f "${CONFIG_DIR}/tools/rgt-port-monitor.sh" ]]; then
-        for port in "${tunnel_port[@]}"; do
-            ${CONFIG_DIR}/tools/rgt-port-monitor.sh addport "$port" "$transport"
-        done
-        ${CONFIG_DIR}/tools/rgt-port-monitor.sh install
-    fi
-
     colorize green "Iran server configuration for tunnel '$tunnel_name' completed."
     press_key
     return 0
 }
+
 # Function to configure Kharej server
 kharej_server_configuration() {
     clear
@@ -1770,10 +1694,6 @@ manage_tunnel() {
     echo "4) Check tunnel status"
     echo "5) Edit tunnel configuration"
     echo "6) Delete tunnel"
-    if [[ "$tunnel_type" == "direct-iran" || "$tunnel_type" == "iran" ]]; then
-        echo "7) Show bandwidth usage"
-        echo "8) Reset bandwidth usage"
-    fi
     read -p "Enter choice (0 to return): " manage_choice
 
     case $manage_choice in
@@ -1880,29 +1800,6 @@ manage_tunnel() {
                 colorize yellow "Tunnel deletion canceled."
             fi
             ;;
-        7)
-            if [[ "$tunnel_type" == "direct-iran" || "$tunnel_type" == "iran" ]]; then
-                if [[ -f "${CONFIG_DIR}/tools/rgt-port-monitor.sh" ]]; then
-                    ${CONFIG_DIR}/tools/rgt-port-monitor.sh show
-                else
-                    colorize red "rgt-port-monitor.sh not found."
-                fi
-            else
-                colorize red "Bandwidth monitoring is only available for Iran server tunnels."
-            fi
-            ;;
-        8)
-            if [[ "$tunnel_type" == "direct-iran" || "$tunnel_type" == "iran" ]]; then
-                if [[ -f "${CONFIG_DIR}/tools/rgt-port-monitor.sh" ]]; then
-                    ${CONFIG_DIR}/tools/rgt-port-monitor.sh reset
-                    colorize green "Bandwidth usage reset successfully."
-                else
-                    colorize red "rgt-port-monitor.sh not found."
-                fi
-            else
-                colorize red "Bandwidth monitoring is only available for Iran server tunnels."
-            fi
-            ;;
         0)
             return
             ;;
@@ -1912,6 +1809,7 @@ manage_tunnel() {
     esac
     press_key
 }
+# Modified destroy_tunnel to handle HAProxy config cleanup
 destroy_tunnel() {
     local config_path="$1"
     local tunnel_type="$2"
@@ -1956,18 +1854,6 @@ destroy_tunnel() {
         fi
     fi
 
-    # Remove bandwidth monitoring data for tunnel port only (Iran server only)
-    if [[ "$tunnel_type" == "direct-iran" || "$tunnel_type" == "iran" ]]; then
-        if [[ -f "${CONFIG_DIR}/tools/rgt-port-monitor.sh" ]]; then
-            proto=$(grep "type = " "$config_path" | head -n 1 | cut -d'"' -f2)
-            [[ -z "$proto" ]] && proto="tcp"  # Default to tcp if not found
-            ${CONFIG_DIR}/tools/rgt-port-monitor.sh removeport "$tunnel_port" "$proto"
-        fi
-        # Remove iptables rules for the tunnel port only
-        iptables -D INPUT -p "$proto" --dport "$tunnel_port" -j ACCEPT 2>/dev/null
-        iptables -D OUTPUT -p "$proto" --sport "$tunnel_port" -j ACCEPT 2>/dev/null
-    fi
-
     # Reload systemd to reflect changes
     systemctl daemon-reload || { colorize yellow "Failed to reload systemd."; press_key; return 1; }
 
@@ -1975,6 +1861,7 @@ destroy_tunnel() {
     press_key
     return 0
 }
+
 # Function to restart service
 restart_service() {
     local service_name="$1"
@@ -2038,11 +1925,6 @@ remove_core() {
                 cp "${HAPROXY_CFG}.bak" "$HAPROXY_CFG" 2>/dev/null
             fi
         fi
-        # Uninstall rgt-port-monitor service
-        if [[ -f "${CONFIG_DIR}/tools/rgt-port-monitor.sh" ]]; then
-            ${CONFIG_DIR}/tools/rgt-port-monitor.sh uninstall
-            rm -rf "${CONFIG_DIR}/tools"
-        fi
         rm -rf "$CONFIG_DIR" || colorize yellow "Failed to remove RGT core directory $CONFIG_DIR."
         systemctl daemon-reload
         colorize green "RGT core removed."
@@ -2085,7 +1967,7 @@ display_server_info() {
 display_menu() {
     clear
     display_logo
-    echo -e "${CYAN}Version: ${YELLOW}1.2${NC}"
+    echo -e "${CYAN}Version: ${YELLOW}1.0${NC}"
     display_server_info
     colorize green "1) Setup new tunnel" bold
     colorize green "2) Manage tunnels" bold
@@ -2101,18 +1983,10 @@ display_menu() {
 # Main loop
 install_dependencies
 mkdir -p "$CONFIG_DIR"
-if [[ ! -f "${SCRIPT_PATH}" ]] || ! grep -q "function display_menu" "${SCRIPT_PATH}"; then
+if [[ ! -f "${SCRIPT_PATH}" ]]; then
     cp "$0" "${SCRIPT_PATH}"
     chmod +x "${SCRIPT_PATH}"
     colorize green "Script is now executable as 'RGT' command." bold
-    # Verify the copied script is complete
-    if ! grep -q "function display_menu" "${SCRIPT_PATH}"; then
-        colorize red "Copied script at ${SCRIPT_PATH} is incomplete."
-        press_key
-        exit 1
-    fi
-    colorize yellow "Starting RGT manager..."
-    exec "${SCRIPT_PATH}"
 fi
 while true; do
     display_menu
