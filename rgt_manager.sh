@@ -1712,6 +1712,7 @@ manage_tunnel() {
         echo "7) Show bandwidth usage"
         echo "8) Reset bandwidth usage"
     fi
+    echo "9) Set cron job for tunnel restart"
     read -p "Enter choice (0 to return): " manage_choice
 
     case $manage_choice in
@@ -1841,7 +1842,7 @@ manage_tunnel() {
                                 sudo rm -f "$bandwidth_file" || colorize red "Failed to remove bandwidth file: $bandwidth_file"
                                 colorize green "Removed bandwidth file: $bandwidth_file"
                             else
-                                colorize yellow "Bandwidth file $bandwidth_file not found, skipping."
+                                colorize yellow "Bandwidth file $bandwidth_file is Deleted."
                             fi
                             # Remove port from ports.txt
                             ports_file="/root/bandwidth/ports.txt"
@@ -1913,6 +1914,53 @@ manage_tunnel() {
             else
                 colorize red "Bandwidth monitoring is only available for Iran server tunnels."
             fi
+            ;;
+        9)
+            colorize cyan "Set Cron Job for Auto-Restart of Tunnel: $tunnel_name" bold
+            echo "Select restart interval:"
+            echo "1) 5 minutes"
+            echo "2) 10 minutes"
+            echo "3) 15 minutes"
+            echo "4) 30 minutes"
+            echo "5) 1 hour"
+            echo "6) 2 hours"
+            echo "7) 4 hours"
+            echo "8) 12 hours"
+            echo "9) 24 hours"
+            read -p "Enter choice (0 to return): " cron_choice
+            case $cron_choice in
+                0)
+                    return
+                    ;;
+                1|2|3|4|5|6|7|8|9)
+                    local interval cron_schedule
+                    case $cron_choice in
+                        1) interval="5 minutes"; cron_schedule="*/5 * * * *" ;;
+                        2) interval="10 minutes"; cron_schedule="*/10 * * * *" ;;
+                        3) interval="15 minutes"; cron_schedule="*/15 * * * *" ;;
+                        4) interval="30 minutes"; cron_schedule="*/30 * * * *" ;;
+                        5) interval="1 hour"; cron_schedule="0 * * * *" ;;
+                        6) interval="2 hours"; cron_schedule="0 */2 * * *" ;;
+                        7) interval="4 hours"; cron_schedule="0 */4 * * *" ;;
+                        8) interval="12 hours"; cron_schedule="0 */12 * * *" ;;
+                        9) interval="24 hours"; cron_schedule="0 0 * * *" ;;
+                    esac
+                    # Remove existing cron job for this service
+                    crontab -l | grep -v "systemctl restart $service_name" > /tmp/crontab_tmp
+                    # Add new cron job
+                    local cron_command="/usr/bin/systemctl restart $service_name"
+                    if [[ "$tunnel_type" == "direct-iran" || "$tunnel_type" == "direct-kharej" ]]; then
+                        cron_command="$cron_command && /usr/bin/systemctl restart haproxy"
+                    fi
+                    echo "$cron_schedule $cron_command" >> /tmp/crontab_tmp
+                    crontab /tmp/crontab_tmp
+                    rm -f /tmp/crontab_tmp
+                    colorize green "Cron job set for restarting tunnel $tunnel_name every $interval."
+                    ;;
+                *)
+                    colorize red "Invalid choice! Please select a number between 1 and 9 or 0 to return."
+                    ;;
+            esac
             ;;
         0)
             return
