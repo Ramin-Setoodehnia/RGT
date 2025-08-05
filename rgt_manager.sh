@@ -1901,7 +1901,7 @@ destroy_tunnel() {
         fi
     fi
 
-	# Remove bandwidth monitoring data and iptables rules for tunnel port only (Iran server only)
+	# Remove bandwidth monitoring data, iptables rules, bandwidth files, and port entry for tunnel port only (Iran server only)
 	if [[ "$tunnel_type" == "direct-iran" || "$tunnel_type" == "iran" ]]; then
 		if [[ -f "${CONFIG_DIR}/tools/rgt-port-monitor.sh" ]]; then
 			if [[ "$tunnel_type" == "direct-iran" ]]; then
@@ -1913,12 +1913,31 @@ destroy_tunnel() {
 			tunnel_port=$(grep "^dstport=" "$config_path" 2>/dev/null | cut -d'=' -f2 | tr -d ' ')
 			[[ -z "$tunnel_port" && "$tunnel_type" == "iran" ]] && tunnel_port=$(grep "bind_addr" "$config_path" | head -n 1 | cut -d':' -f2 | cut -d'"' -f1)
 			if [[ -n "$tunnel_port" ]]; then
+				# Remove port from rgt-port-monitor.sh
 				${CONFIG_DIR}/tools/rgt-port-monitor.sh removeport "$tunnel_port" "$proto"
 				# Remove iptables rules for the tunnel port
 				iptables -D INPUT -p "$proto" --dport "$tunnel_port" -j ACCEPT 2>/dev/null
 				iptables -D OUTPUT -p "$proto" --sport "$tunnel_port" -j ACCEPT 2>/dev/null
 				ip6tables -D INPUT -p "$proto" --dport "$tunnel_port" -j ACCEPT 2>/dev/null
 				ip6tables -D OUTPUT -p "$proto" --sport "$tunnel_port" -j ACCEPT 2>/dev/null
+				# Remove bandwidth usage file
+				bandwidth_file="/root/bandwidth/port_${tunnel_port}_${proto}_usage.txt"
+				if [[ -f "$bandwidth_file" ]]; then
+					rm -f "$bandwidth_file"
+					colorize green "Removed bandwidth file: $bandwidth_file"
+				fi
+				# Remove port from ports.txt
+				ports_file="/root/rgt-core/ports.txt"
+				if [[ -f "$ports_file" ]]; then
+					# Create a temporary file for ports.txt
+					temp_ports_file=$(mktemp)
+					# Remove the line matching the port and protocol
+					grep -v "^${tunnel_port} ${proto}$" "$ports_file" > "$temp_ports_file"
+					mv "$temp_ports_file" "$ports_file"
+					colorize green "Removed port ${tunnel_port} ${proto} from $ports_file"
+				else
+					colorize yellow "Warning: $ports_file not found, skipping port cleanup."
+				fi
 			else
 				colorize yellow "Warning: Could not determine tunnel port for $tunnel_type tunnel."
 			fi
