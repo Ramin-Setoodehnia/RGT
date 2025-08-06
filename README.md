@@ -94,6 +94,12 @@ First, install the RGT core with option 3 on both servers (if it fails to instal
 - **Access Issues**: If you lack GitHub access, coordinate with your server administrator to upload the files.
 
    ## ❤️Donit
+  
+ <summary>wallet Address</summary>
+
+If the project was useful to you, you can use the following addresses for financial support:
+
+| coin |  wallet Address |
 |-------|------------|
 | **Tron** | `TFoHrr4C9aXzt5YSA2nLcNRBgnRiBR57VL` |
 | **DOGE** | `DDTdqfYR29vuqfHgfoG26VySUFE4BxUT5w` |
