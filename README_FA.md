@@ -94,3 +94,10 @@ RGT
 مخزن GitHub: black-sec/RGT
 تماس: از طریق GitHub Issues یا تلگرام (@Coderman_ir)
 مشکلات دسترسی: اگر به GitHub دسترسی ندارید، با مدیر سرور خود برای آپلود فایل‌ها هماهنگ کنید.
+
+ ## ❤️حمایت مالی از پروژه
+|-------|------------|
+| **Tron** | `TFoHrr4C9aXzt5YSA2nLcNRBgnRiBR57VL` |
+| **DOGE** | `DDTdqfYR29vuqfHgfoG26VySUFE4BxUT5w` |
+| **TON** | `UQATjmqCOOkHGYUlyjzWB6KIDjPogpa_oIEraPeXNRfGZAWh` |
+| **LTC** | `ltc1q377z5q9ggjkng4s37fdtj85nw97svmhsg420a6` |
