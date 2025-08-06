@@ -297,7 +297,7 @@ update_script() {
         colorize red "Failed to set execute permissions on ${MONITOR_SCRIPT_PATH}."
         press_key
         return 1
-    }
+    fi
     colorize green "rgt-port-monitor.sh updated successfully."
 
     press_key
