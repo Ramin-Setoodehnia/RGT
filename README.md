@@ -93,7 +93,7 @@ First, install the RGT core with option 3 on both servers (if it fails to instal
 - **GitHub Repository**: [black-sec/RGT](https://github.com/black-sec/RGT)
 - **Access Issues**: If you lack GitHub access, coordinate with your server administrator to upload the files.
 
-   ## ❤️Donit
+   ## ❤️Donation
   
  <summary>wallet Address</summary>
 
