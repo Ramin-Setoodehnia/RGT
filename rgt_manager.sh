@@ -224,17 +224,27 @@ update_script() {
     colorize yellow "Downloading updated script..."
     if ! curl -sSL -o "$TEMP_SCRIPT" "$UPDATE_URL"; then
         colorize red "Failed to download updated script. Please check network or URL."
+        rm -f "$TEMP_SCRIPT" 2>/dev/null
         press_key
         return 1
     fi
     if ! grep -q "RGT Tunnel" "$TEMP_SCRIPT"; then
         colorize red "Downloaded file does not appear to be a valid RGT script."
-        rm -f "$TEMP_SCRIPT"
+        rm -f "$TEMP_SCRIPT" 2>/dev/null
         press_key
         return 1
     fi
-    mv "$TEMP_SCRIPT" "${SCRIPT_PATH}"
-    chmod +x "${SCRIPT_PATH}"
+    if ! mv "$TEMP_SCRIPT" "${SCRIPT_PATH}"; then
+        colorize red "Failed to move updated script to ${SCRIPT_PATH}."
+        rm -f "$TEMP_SCRIPT" 2>/dev/null
+        press_key
+        return 1
+    fi
+    chmod +x "${SCRIPT_PATH}" || {
+        colorize red "Failed to set execute permissions on ${SCRIPT_PATH}."
+        press_key
+        return 1
+    }
     colorize green "RGT Manager Script updated successfully."
     colorize yellow "Please re-run the script with 'RGT' command to use the updated version."
 
@@ -242,18 +252,52 @@ update_script() {
     MONITOR_SCRIPT_URL="https://raw.githubusercontent.com/black-sec/RGT/main/tools/rgt-port-monitor.sh"
     MONITOR_SCRIPT_PATH="${CONFIG_DIR}/tools/rgt-port-monitor.sh"
     colorize yellow "Downloading updated rgt-port-monitor.sh..."
-    if ! curl -sSL -o "$MONITOR_SCRIPT_PATH" "$MONITOR_SCRIPT_URL"; then
-        colorize red "Failed to download updated rgt-port-monitor.sh."
+    # Ensure the tools directory exists and has correct permissions
+    if ! mkdir -p "${CONFIG_DIR}/tools"; then
+        colorize red "Failed to create directory ${CONFIG_DIR}/tools."
         press_key
         return 1
     fi
-    if ! grep -q "rgt-port-monitor.sh" "$MONITOR_SCRIPT_PATH"; then
+    if ! chown root:root "${CONFIG_DIR}/tools" || ! chmod 755 "${CONFIG_DIR}/tools"; then
+        colorize red "Failed to set permissions for ${CONFIG_DIR}/tools."
+        press_key
+        return 1
+    fi
+    # Check if the destination file is locked or in use
+    if [[ -f "$MONITOR_SCRIPT_PATH" ]] && lsof "$MONITOR_SCRIPT_PATH" >/dev/null 2>&1; then
+        colorize yellow "File ${MONITOR_SCRIPT_PATH} is in use. Attempting to stop processes..."
+        pkill -f "rgt-port-monitor.sh" 2>/dev/null || {
+            colorize red "Failed to stop processes using ${MONITOR_SCRIPT_PATH}."
+            press_key
+            return 1
+        }
+    fi
+    # Use a temporary file for downloading
+    temp_monitor_file=$(mktemp)
+    if ! curl -sSL -o "$temp_monitor_file" "$MONITOR_SCRIPT_URL"; then
+        colorize red "Failed to download updated rgt-port-monitor.sh. Check network or URL."
+        rm -f "$temp_monitor_file" 2>/dev/null
+        press_key
+        return 1
+    fi
+    if ! grep -q "rgt-port-monitor.sh" "$temp_monitor_file"; then
         colorize red "Downloaded rgt-port-monitor.sh is invalid."
-        rm -f "$MONITOR_SCRIPT_PATH"
+        rm -f "$temp_monitor_file" 2>/dev/null
         press_key
         return 1
     fi
-    chmod +x "$MONITOR_SCRIPT_PATH"
+    # Move the downloaded file to destination
+    if ! mv "$temp_monitor_file" "$MONITOR_SCRIPT_PATH"; then
+        colorize red "Failed to move downloaded file to ${MONITOR_SCRIPT_PATH}."
+        rm -f "$temp_monitor_file" 2>/dev/null
+        press_key
+        return 1
+    fi
+    if ! chmod +x "$MONITOR_SCRIPT_PATH"; then
+        colorize red "Failed to set execute permissions on ${MONITOR_SCRIPT_PATH}."
+        press_key
+        return 1
+    }
     colorize green "rgt-port-monitor.sh updated successfully."
 
     press_key
