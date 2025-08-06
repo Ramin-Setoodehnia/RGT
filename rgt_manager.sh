@@ -372,8 +372,8 @@ validate_vxlan_setup() {
         colorize yellow "Loading VXLAN kernel module..."
         modprobe vxlan || { colorize red "Failed to load VXLAN module"; return 1; }
     fi
-    if [[ -n "$(ip addr show | grep -w "$local_ip" | grep -v "$network_interface")" ]]; then
-        colorize red "IP address $local_ip is already in use on another interface."
+    if ! ip -6 addr show dev "$network_interface" | grep -w "$local_ip" &> /dev/null; then
+        colorize red "IP address $local_ip is not assigned to interface $network_interface."
         return 1
     fi
     return 0
