@@ -93,5 +93,13 @@ First, install the RGT core with option 3 on both servers (if it fails to instal
 - **GitHub Repository**: [black-sec/RGT](https://github.com/black-sec/RGT)
 - **Access Issues**: If you lack GitHub access, coordinate with your server administrator to upload the files.
 
+   ## ❤️Donit
+|-------|------------|
+| **Tron** | `TFoHrr4C9aXzt5YSA2nLcNRBgnRiBR57VL` |
+| **DOGE** | `DDTdqfYR29vuqfHgfoG26VySUFE4BxUT5w` |
+| **TON** | `UQATjmqCOOkHGYUlyjzWB6KIDjPogpa_oIEraPeXNRfGZAWh` |
+| **LTC** | `ltc1q377z5q9ggjkng4s37fdtj85nw97svmhsg420a6` |
+
+
 ## Stargazers over time
 [![Stargazers over time](https://starchart.cc/black-sec/RGT.svg?variant=adaptive)](https://starchart.cc/black-sec/RGT)
