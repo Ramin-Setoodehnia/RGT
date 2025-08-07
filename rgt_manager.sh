@@ -357,25 +357,43 @@ check_consecutive_errors() {
     fi
 }
 
-# Function to validate VXLAN setup
 validate_vxlan_setup() {
     local local_ip=$1
     local remote_ip=$2
     local tunnel_port=$3
     local network_interface=$4
     local vxlan_id=$5
+
+    # بررسی وضعیت رابط شبکه
     if ! ip link show "$network_interface" up &> /dev/null; then
         colorize red "Network interface $network_interface is not up."
         return 1
     fi
+
+    # بررسی ماژول VXLAN
     if ! lsmod | grep -q vxlan; then
         colorize yellow "Loading VXLAN kernel module..."
         modprobe vxlan || { colorize red "Failed to load VXLAN module"; return 1; }
     fi
-    if ! ip -6 addr show dev "$network_interface" | grep -w "$local_ip" &> /dev/null; then
-        colorize red "IP address $local_ip is not assigned to interface $network_interface."
+
+    # تشخیص نوع آدرس (IPv4 یا IPv6)
+    if [[ "$local_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        # برای IPv4
+        if ! ip -4 addr show dev "$network_interface" | grep -w "$local_ip" &> /dev/null; then
+            colorize red "IP address $local_ip is not assigned to interface $network_interface."
+            return 1
+        fi
+    elif [[ "$local_ip" =~ ^[0-9a-fA-F:]+$ ]]; then
+        # برای IPv6
+        if ! ip -6 addr show dev "$network_interface" | grep -w "$local_ip" &> /dev/null; then
+            colorize red "IP address $local_ip is not assigned to interface $network_interface."
+            return 1
+        fi
+    else
+        colorize red "Invalid IP address format: $local_ip"
         return 1
     fi
+
     return 0
 }
 
