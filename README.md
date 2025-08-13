@@ -1,6 +1,8 @@
 ![Menu](https://github.com/black-sec/RGT/blob/main/Menu.png)
 
 [Persian Readme](https://github.com/black-sec/RGT/blob/main/README_FA.md)
+- ** Telegram channel : https://t.me/rogozar_dev
+- ** Telegram Group : https://t.me/rogozar_team
 
 ## RGT Tunnel
 
@@ -89,8 +91,21 @@ First, install the RGT core with option 3 on both servers (if it fails to instal
 #### Support
 
 - **GitHub Repository**: [black-sec/RGT](https://github.com/black-sec/RGT)
-- [![Telegram](https://img.shields.io/badge/Telegram--0088CC?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/rogozar_dev) 
 - **Access Issues**: If you lack GitHub access, coordinate with your server administrator to upload the files.
+
+   ## ❤️Donation
+  
+ <summary>wallet Address</summary>
+
+If the project was useful to you, you can use the following addresses for financial support:
+
+| coin |  wallet Address |
+|-------|------------|
+| **Tron** | `TFoHrr4C9aXzt5YSA2nLcNRBgnRiBR57VL` |
+| **DOGE** | `DDTdqfYR29vuqfHgfoG26VySUFE4BxUT5w` |
+| **TON** | `UQATjmqCOOkHGYUlyjzWB6KIDjPogpa_oIEraPeXNRfGZAWh` |
+| **LTC** | `ltc1q377z5q9ggjkng4s37fdtj85nw97svmhsg420a6` |
+
 
 ## Stargazers over time
 [![Stargazers over time](https://starchart.cc/black-sec/RGT.svg?variant=adaptive)](https://starchart.cc/black-sec/RGT)
